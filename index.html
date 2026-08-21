@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>DAVY'S MAP EXPLORER v3.14</title>
+<title>DAVY'S MAP EXPLORER v3.15</title>
 <link rel="icon" type="image/png" href="brand-image.png">
 <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
 <link href="https://fonts.googleapis.com/css2?family=Bowlby+One&family=Knewave&display=swap" rel="stylesheet">
@@ -230,6 +230,14 @@
     #sidebar { border-right:0; border-bottom:1px solid #ddd; display:grid; grid-template-columns:1fr 1fr; gap:12px; padding:12px; max-height:42vh; }
     .group { margin:0; }
     .brand-title { font-size:24px; -webkit-text-stroke:1.6px #111111; }
+    /* Keep the address Find button readable on mobile browsers that override button text color. */
+    .search-row button {
+      background:#fff; color:#111; -webkit-text-fill-color:#111; border-color:#9d9d9d;
+      -webkit-appearance:none; appearance:none; opacity:1;
+    }
+    .search-row button:disabled {
+      background:#f2f2f2; color:#666; -webkit-text-fill-color:#666; opacity:1;
+    }
   }
 
   /* Lightweight in-browser polygon sketch controls. No persistence or data collection. */
@@ -257,7 +265,7 @@
       onerror="this.style.display='none'"
     >
     <span class="brand-title">DAVY'S MAP EXPLORER</span>
-    <span class="version-tag">v3.14</span>
+    <span class="version-tag">v3.15</span>
   </header>
   <aside id="sidebar">
     <div class="group">
@@ -340,7 +348,7 @@
 
 <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
 <script>
-// DAVY'S MAP EXPLORER v3.14
+// DAVY'S MAP EXPLORER v3.15
 // LIVE DATA: Supabase project THE PORTAL.
 // This is a publishable browser key, not a service-role or secret key.
 const SUPABASE_URL = 'https://bxrxpiqyfnbahmqglkkc.supabase.co';
