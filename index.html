@@ -1,0 +1,583 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>DAVY'S MAP EXPLORER v2.0</title>
+<link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Knewave&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:#f4f2ec;
+    --panel:#ffffff;
+    --ink:#171717;
+    --muted:#696969;
+    --line:#2d2d2d;
+    --soft:#d7d4cc;
+    --accent:#1d4f8c;
+  }
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; font-family: ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; color:var(--ink); }
+  body { overflow:hidden; background:var(--bg); }
+  #app { display:grid; grid-template-columns:310px 1fr; grid-template-rows:82px 1fr; height:100%; }
+  header {
+    grid-column:1 / -1;
+    background:#ffffff;
+    color:#111111;
+    display:flex;
+    align-items:center;
+    padding:0 22px;
+    min-height:82px;
+    overflow:visible;
+    border-bottom:1px solid #e5e5e5;
+  }
+
+  .brand-image {
+    display:block;
+    width:58px;
+    height:58px;
+    object-fit:contain;
+    flex:0 0 auto;
+    margin-right:16px;
+  }
+
+  .brand-title {
+    font-family:'TAN St. Canard','Cooper Black','Arial Black',serif;
+    font-size:29px;
+    font-weight:400;
+    letter-spacing:.015em;
+    line-height:1;
+
+    color:#FFD52F;
+    -webkit-text-stroke:2px #111111;
+    paint-order:stroke fill;
+
+    /* stronger hard offset shadow */
+    text-shadow:
+      -1px 1px 0 #111111,
+      -2px 2px 0 #111111,
+      -3px 3px 0 #111111,
+      -4px 4px 0 #111111,
+      -5px 5px 0 #111111,
+      -6px 6px 0 #111111,
+      -7px 7px 0 #111111,
+      -8px 8px 0 #111111;
+  }
+  .version-tag {
+    font-family:'Knewave', cursive;
+    font-size:14px;
+    font-weight:400;
+    letter-spacing:.01em;
+    margin-left:16px;
+    color:#111111;
+    opacity:.62;
+    align-self:center;
+    transform:translateY(3px);
+  }
+  #sidebar { background:var(--panel); border-right:1px solid #ddd; padding:18px; overflow:auto; }
+  #map { width:100%; height:100%; }
+  .eyebrow { font-size:11px; letter-spacing:.1em; text-transform:uppercase; color:var(--muted); font-weight:800; margin-bottom:6px; }
+  .group { margin-bottom:20px; }
+  label { font-size:12px; font-weight:750; display:block; margin:0 0 6px; }
+  select,button {
+    width:100%; border:1px solid #c9c9c9; background:white; border-radius:7px; padding:9px 10px;
+    font:inherit; font-size:13px;
+  }
+  button { cursor:pointer; font-weight:750; }
+  button:hover { background:#f3f3f3; }
+  .checkrow { display:flex; align-items:center; gap:8px; font-size:13px; margin-top:8px; }
+  .checkrow input { width:auto; }
+  .slider-row { margin-top:10px; }
+  .slider-head { display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:6px; }
+  .slider-head label { margin:0; }
+  .slider-value { font-size:12px; font-weight:800; color:var(--muted); }
+  input[type="range"] { width:100%; accent-color:#171717; }
+  input[type="range"]:disabled { opacity:.38; cursor:not-allowed; }
+  #status {
+    font-size:12px; color:var(--muted); line-height:1.45; padding:11px; background:#f5f5f3; border-radius:7px;
+  }
+  #legend { margin-top:12px; display:none; }
+  .legend-title { font-size:12px; font-weight:800; margin-bottom:7px; }
+  .legend-row { display:grid; grid-template-columns:24px 1fr; align-items:center; gap:7px; font-size:11px; margin:4px 0; }
+  .swatch { height:13px; border:1px solid rgba(0,0,0,.2); border-radius:2px; }
+  .hint { font-size:11px; color:var(--muted); line-height:1.45; }
+  .maplibregl-popup-content {
+    font:12px/1.4 ui-sans-serif,system-ui,sans-serif;
+    min-width:190px;
+    padding:14px 42px 14px 14px;
+    border-radius:8px;
+  }
+  .maplibregl-popup-close-button {
+    top:7px;
+    right:7px;
+    width:26px;
+    height:26px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    padding:0;
+    border-radius:5px;
+    font-size:21px;
+    line-height:1;
+    color:#171717;
+    background:rgba(255,255,255,.94);
+  }
+  .maplibregl-popup-close-button:hover {
+    background:#ececec;
+  }
+  .popup-title {
+    font-weight:850;
+    font-size:14px;
+    margin-bottom:6px;
+    padding-right:4px;
+  }
+  .popup-grid { display:grid; grid-template-columns:1fr auto; gap:3px 12px; }
+  .popup-grid .v { font-weight:750; text-align:right; }
+  @media (max-width:760px) {
+    #app { grid-template-columns:1fr; grid-template-rows:72px auto 1fr; }
+    header { grid-column:1; }
+    #sidebar { border-right:0; border-bottom:1px solid #ddd; display:grid; grid-template-columns:1fr 1fr; gap:12px; padding:12px; max-height:42vh; }
+    .group { margin:0; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <img
+      class="brand-image"
+      src="brand-image.png"
+      alt=""
+      onerror="this.style.display='none'"
+    >
+    <span class="brand-title">DAVY'S MAP EXPLORER</span>
+    <span class="version-tag">v2.0</span>
+  </header>
+  <aside id="sidebar">
+    <div class="group">
+      <div class="eyebrow">Geography</div>
+      <label for="geoType">Area type</label>
+      <select id="geoType">
+        <option value="citywide">Citywide</option>
+        <option value="city_council" selected>City Council District</option>
+        <option value="pa_house">PA House District</option>
+        <option value="pa_senate">PA Senate District</option>
+        <option value="congressional">Congressional District</option>
+        <option value="ward">Ward</option>
+      </select>
+      <label for="geoValue" style="margin-top:10px">Area</label>
+      <select id="geoValue"></select>
+      <button id="fitBtn" style="margin-top:9px">Fit selected area</button>
+    </div>
+
+    <div class="group">
+      <div class="eyebrow">Data layer</div>
+      <label for="dataLayer">Shade precincts by</label>
+      <select id="dataLayer">
+        <option value="none">None — geography only</option>
+        <option value="amanda">2023 Primary · Amanda McIllmurray · % of DEM ballots</option>
+      </select>
+      <div id="legend">
+        <div class="legend-title">Amanda McIllmurray support</div>
+        <div class="legend-row"><span class="swatch" style="background:#f3f0e6"></span><span>Under 10%</span></div>
+        <div class="legend-row"><span class="swatch" style="background:#c8d8e8"></span><span>10–20%</span></div>
+        <div class="legend-row"><span class="swatch" style="background:#8eb4d6"></span><span>20–30%</span></div>
+        <div class="legend-row"><span class="swatch" style="background:#4f86b7"></span><span>30–40%</span></div>
+        <div class="legend-row"><span class="swatch" style="background:#1d4f8c"></span><span>40%+</span></div>
+      </div>
+    </div>
+
+    <div class="group">
+      <div class="eyebrow">Background map</div>
+      <div class="checkrow">
+        <input id="basemapToggle" type="checkbox">
+        <label for="basemapToggle" style="margin:0">Hide background map</label>
+      </div>
+      <div class="slider-row">
+        <div class="slider-head">
+          <label for="basemapTransparency">Transparency</label>
+          <span id="basemapTransparencyValue" class="slider-value">28%</span>
+        </div>
+        <input id="basemapTransparency" type="range" min="0" max="100" step="1" value="28">
+      </div>
+    </div>
+
+    <div class="group">
+      <div class="eyebrow">Labels</div>
+      <div class="checkrow"><input id="wardLabelsToggle" type="checkbox" checked><label for="wardLabelsToggle" style="margin:0">Ward labels</label></div>
+      <div class="checkrow"><input id="divisionLabelsToggle" type="checkbox" checked><label for="divisionLabelsToggle" style="margin:0">Division labels when zoomed in</label></div>
+      <p class="hint">Ward labels stay visible at wider scales. Division boundaries and labels stay hidden until you zoom much closer.</p>
+    </div>
+
+    <div class="group">
+      <div class="eyebrow">Current view</div>
+      <div id="status">Loading map…</div>
+    </div>
+  </aside>
+  <main id="map"></main>
+</div>
+
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script>
+// DAVY'S MAP EXPLORER v2.0
+// LIVE DATA: Supabase project THE PORTAL.
+// This is a publishable browser key, not a service-role or secret key.
+const SUPABASE_URL = 'https://bxrxpiqyfnbahmqglkkc.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_KpTD5D2ISf9xPTLRC4_7vA_4F-0ZqA_';
+
+const geoType = document.getElementById('geoType');
+const geoValue = document.getElementById('geoValue');
+const dataLayer = document.getElementById('dataLayer');
+const status = document.getElementById('status');
+const legend = document.getElementById('legend');
+const basemapToggle = document.getElementById('basemapToggle');
+const basemapTransparency = document.getElementById('basemapTransparency');
+const basemapTransparencyValue = document.getElementById('basemapTransparencyValue');
+
+let geographyOptions = {};
+let currentPrecincts = {type:'FeatureCollection',features:[]};
+let currentWards = {type:'FeatureCollection',features:[]};
+let currentBoundary = {type:'FeatureCollection',features:[]};
+let requestSerial = 0;
+
+async function rpc(name, args={}) {
+  const response = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${name}`, {
+    method:'POST',
+    headers:{
+      'apikey':SUPABASE_KEY,
+      'Content-Type':'application/json'
+    },
+    body:JSON.stringify(args)
+  });
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(`${name}: ${response.status} ${message}`);
+  }
+  return response.json();
+}
+
+const map = new maplibregl.Map({
+  container:'map',
+  style:{
+    version:8,
+    glyphs:'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
+    sources:{},
+    layers:[{id:'background',type:'background',paint:{'background-color':'#f4f2ec'}}]
+  },
+  center:[-75.15,39.99],
+  zoom:9.1,
+  attributionControl:true
+});
+map.addControl(new maplibregl.NavigationControl({showCompass:false}), 'top-right');
+
+function geographyArgs() {
+  return {
+    p_geography_type: geoType.value,
+    p_geography_value: geoType.value === 'citywide' ? null : geoValue.value
+  };
+}
+
+function typeLabel() {
+  return {
+    citywide:'Philadelphia',
+    city_council:`City Council District ${geoValue.value}`,
+    pa_house:`PA House District ${geoValue.value}`,
+    pa_senate:`PA Senate District ${geoValue.value}`,
+    congressional:`Congressional District ${geoValue.value}`,
+    ward:`Ward ${String(geoValue.value).padStart(2,'0')}`
+  }[geoType.value];
+}
+
+function populateAreas(preferredValue=null) {
+  const type = geoType.value;
+  geoValue.innerHTML = '';
+  if (type === 'citywide') {
+    geoValue.disabled = true;
+    const o=document.createElement('option');
+    o.value='CITYWIDE';
+    o.textContent='Philadelphia';
+    geoValue.appendChild(o);
+    return;
+  }
+
+  geoValue.disabled = false;
+  const arr = geographyOptions[type] || [];
+  arr.forEach(v => {
+    const o=document.createElement('option');
+    o.value=String(v);
+    o.textContent = type === 'ward' ? `Ward ${String(v).padStart(2,'0')}` : String(v);
+    geoValue.appendChild(o);
+  });
+
+  if (preferredValue != null && arr.map(String).includes(String(preferredValue))) {
+    geoValue.value=String(preferredValue);
+  } else if (type === 'city_council' && arr.map(String).includes('6')) {
+    geoValue.value='6';
+  }
+}
+
+function walkCoords(coords, callback) {
+  if (!Array.isArray(coords)) return;
+  if (coords.length >= 2 && typeof coords[0] === 'number' && typeof coords[1] === 'number') {
+    callback(coords[0], coords[1]);
+    return;
+  }
+  coords.forEach(c => walkCoords(c, callback));
+}
+
+function bboxForFeatureCollection(fc) {
+  let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
+  (fc.features || []).forEach(f => {
+    if (!f.geometry) return;
+    walkCoords(f.geometry.coordinates,(x,y)=>{
+      minX=Math.min(minX,x); minY=Math.min(minY,y);
+      maxX=Math.max(maxX,x); maxY=Math.max(maxY,y);
+    });
+  });
+  return Number.isFinite(minX) ? [minX,minY,maxX,maxY] : null;
+}
+
+function wardLabelPoints(wards) {
+  return {
+    type:'FeatureCollection',
+    features:(wards.features || []).map(f => {
+      const box=bboxForFeatureCollection({type:'FeatureCollection',features:[f]});
+      return {
+        type:'Feature',
+        properties:{label:f.properties.ward},
+        geometry:{type:'Point',coordinates:[(box[0]+box[2])/2,(box[1]+box[3])/2]}
+      };
+    })
+  };
+}
+
+function fitSelected() {
+  const b=bboxForFeatureCollection(currentBoundary);
+  if (!b) return;
+  map.fitBounds([[b[0],b[1]],[b[2],b[3]]],{
+    padding:{top:45,bottom:45,left:45,right:45},
+    duration:600
+  });
+}
+
+function updateStatus() {
+  const features=currentPrecincts.features || [];
+  const wards=[...new Set(features.map(f=>f.properties.ward))];
+  status.innerHTML = `<strong>${typeLabel()}</strong><br>${features.length.toLocaleString()} divisions · ${wards.length} ward${wards.length===1?'':'s'}<br><span style="font-size:10px;letter-spacing:.06em">LIVE FROM SUPABASE</span>`;
+}
+
+async function loadAmanda() {
+  const rows = await rpc('map_amanda_23p', geographyArgs());
+  const byDivision = new Map(rows.map(r => [String(r.division_code).trim(), r]));
+  currentPrecincts.features.forEach(f => {
+    const r=byDivision.get(String(f.properties.division_code).trim());
+    f.properties.amanda_actual_votes = r ? Number(r.actual_votes) : 0;
+    f.properties.dem_ballots_cast = r ? Number(r.dem_ballots_cast) : 0;
+    f.properties.amanda_support_pct = r && r.support_pct != null ? Number(r.support_pct) : null;
+  });
+  map.getSource('precincts').setData(currentPrecincts);
+}
+
+async function updateDataLayer() {
+  const active=dataLayer.value==='amanda';
+  legend.style.display=active?'block':'none';
+
+  if (active) {
+    status.innerHTML = `<strong>${typeLabel()}</strong><br>Loading election layer…`;
+    try {
+      await loadAmanda();
+    } catch (err) {
+      console.error(err);
+      status.innerHTML = `<strong>Data layer error</strong><br>${err.message}`;
+      return;
+    }
+  }
+
+  map.setPaintProperty('precinct-fill','fill-color', active
+    ? ['step',['coalesce',['get','amanda_support_pct'],0],
+       '#f3f0e6',10,'#c8d8e8',20,'#8eb4d6',30,'#4f86b7',40,'#1d4f8c']
+    : '#ffffff');
+  map.setPaintProperty('precinct-fill','fill-opacity', active ? 0.72 : 0);
+  updateStatus();
+}
+
+async function loadGeography(doFit=true) {
+  const serial=++requestSerial;
+  status.innerHTML='<strong>Loading live geography…</strong>';
+  geoType.disabled=true;
+  geoValue.disabled=true;
+
+  try {
+    const args=geographyArgs();
+    const [precincts,wards,boundary] = await Promise.all([
+      rpc('map_precinct_geojson',args),
+      rpc('map_ward_geojson',args),
+      rpc('map_selected_boundary_geojson',args)
+    ]);
+    if (serial !== requestSerial) return;
+
+    currentPrecincts=precincts;
+    currentWards=wards;
+    currentBoundary=boundary;
+
+    map.getSource('precincts').setData(currentPrecincts);
+    map.getSource('wards').setData(currentWards);
+    map.getSource('ward-label-points').setData(wardLabelPoints(currentWards));
+    map.getSource('selected-boundary').setData(currentBoundary);
+
+    updateStatus();
+    if (dataLayer.value==='amanda') await updateDataLayer();
+    if (doFit) fitSelected();
+  } catch (err) {
+    console.error(err);
+    status.innerHTML=`<strong>Supabase connection error</strong><br>${err.message}`;
+  } finally {
+    if (serial === requestSerial) {
+      geoType.disabled=false;
+      geoValue.disabled = geoType.value==='citywide';
+    }
+  }
+}
+
+function updateBasemap() {
+  if (!map.getLayer('basemap')) return;
+  const hidden = basemapToggle.checked;
+  const transparency = Number(basemapTransparency.value);
+  const opacity = hidden ? 0 : Math.max(0, Math.min(1, 1 - transparency / 100));
+  map.setPaintProperty('basemap', 'raster-opacity', opacity);
+  basemapTransparency.disabled = hidden;
+  basemapTransparencyValue.textContent = `${transparency}%`;
+}
+
+map.on('load', async ()=>{
+  map.addSource('basemap',{
+    type:'raster',
+    tiles:['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+    tileSize:256,
+    attribution:'© OpenStreetMap contributors'
+  });
+  map.addLayer({
+    id:'basemap',type:'raster',source:'basemap',
+    paint:{
+      'raster-opacity':0.72,
+      'raster-saturation':-0.28,
+      'raster-contrast':-0.08,
+      'raster-brightness-min':0.16,
+      'raster-brightness-max':0.96
+    }
+  });
+
+  map.addSource('precincts',{type:'geojson',data:currentPrecincts});
+  map.addSource('wards',{type:'geojson',data:currentWards});
+  map.addSource('ward-label-points',{type:'geojson',data:{type:'FeatureCollection',features:[]}});
+  map.addSource('selected-boundary',{type:'geojson',data:currentBoundary});
+
+  map.addLayer({
+    id:'precinct-fill',type:'fill',source:'precincts',
+    paint:{'fill-color':'#ffffff','fill-opacity':0}
+  });
+
+  map.addLayer({
+    id:'precinct-lines',type:'line',source:'precincts',minzoom:12.6,
+    paint:{
+      'line-color':'#5a5a5a',
+      'line-width':['interpolate',['linear'],['zoom'],12.6,0.9,14,1.45,16,1.9],
+      'line-opacity':['interpolate',['linear'],['zoom'],12.6,0.10,13.2,0.52,14.2,0.88]
+    }
+  });
+
+  map.addLayer({
+    id:'ward-lines',type:'line',source:'wards',
+    paint:{
+      'line-color':'#000000',
+      'line-width':['interpolate',['linear'],['zoom'],8,1.25,11,2.0,14,2.7],
+      'line-opacity':0.92
+    }
+  });
+
+  map.addLayer({
+    id:'selected-boundary-line',type:'line',source:'selected-boundary',
+    paint:{
+      'line-color':'#1f6feb',
+      'line-width':['interpolate',['linear'],['zoom'],8,2.6,12,3.5],
+      'line-opacity':1
+    }
+  });
+
+  map.addLayer({
+    id:'ward-labels',type:'symbol',source:'ward-label-points',minzoom:8.1,maxzoom:12.8,
+    layout:{
+      'text-field':['concat','WARD ',['get','label']],
+      'text-size':['interpolate',['linear'],['zoom'],8.5,10,11,13],
+      'text-font':['Open Sans Semibold'],
+      'text-allow-overlap':false
+    },
+    paint:{'text-color':'#171717','text-halo-color':'#ffffff','text-halo-width':1.5}
+  });
+
+  map.addLayer({
+    id:'division-labels',type:'symbol',source:'precincts',minzoom:13.0,
+    layout:{
+      'text-field':['get','display_id'],
+      'text-size':['interpolate',['linear'],['zoom'],13.0,9,14.2,11,16,13],
+      'text-font':['Open Sans Semibold'],
+      'text-allow-overlap':false,
+      'text-padding':2
+    },
+    paint:{'text-color':'#222','text-halo-color':'#fff','text-halo-width':1.2}
+  });
+
+  map.on('click','precinct-fill',(e)=>{
+    const p=e.features[0].properties;
+    let metric='';
+    if (dataLayer.value==='amanda') {
+      const pct=p.amanda_support_pct==null?'—':Number(p.amanda_support_pct).toFixed(1)+'%';
+      metric=`<div>Amanda votes</div><div class="v">${Number(p.amanda_actual_votes||0).toLocaleString()}</div>
+              <div>DEM ballots</div><div class="v">${Number(p.dem_ballots_cast||0).toLocaleString()}</div>
+              <div>Support</div><div class="v">${pct}</div>`;
+    }
+    new maplibregl.Popup()
+      .setLngLat(e.lngLat)
+      .setHTML(`<div class="popup-title">DIVISION ${p.display_id}</div>
+        <div class="popup-grid">
+          <div>Ward</div><div class="v">${p.ward}</div>
+          <div>Council</div><div class="v">${p.city_council_district ?? '—'}</div>
+          <div>PA House</div><div class="v">${p.state_house_district ?? '—'}</div>
+          ${metric}
+        </div>`)
+      .addTo(map);
+  });
+  map.on('mouseenter','precinct-fill',()=>map.getCanvas().style.cursor='pointer');
+  map.on('mouseleave','precinct-fill',()=>map.getCanvas().style.cursor='');
+
+  try {
+    geographyOptions = await rpc('map_geography_options');
+    populateAreas('6');
+    await loadGeography(true);
+    updateBasemap();
+  } catch (err) {
+    console.error(err);
+    status.innerHTML=`<strong>Supabase connection error</strong><br>${err.message}`;
+  }
+});
+
+geoType.addEventListener('change',async ()=>{
+  populateAreas();
+  await loadGeography(true);
+});
+geoValue.addEventListener('change',()=>loadGeography(true));
+dataLayer.addEventListener('change',updateDataLayer);
+document.getElementById('fitBtn').addEventListener('click',fitSelected);
+
+basemapToggle.addEventListener('change', updateBasemap);
+basemapTransparency.addEventListener('input', updateBasemap);
+
+document.getElementById('wardLabelsToggle').addEventListener('change',e=>{
+  map.setLayoutProperty('ward-labels','visibility',e.target.checked?'visible':'none');
+});
+document.getElementById('divisionLabelsToggle').addEventListener('change',e=>{
+  map.setLayoutProperty('division-labels','visibility',e.target.checked?'visible':'none');
+});
+</script>
+</body>
+</html>

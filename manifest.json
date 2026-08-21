@@ -1,0 +1,19 @@
+{
+  "title": "DAVY'S MAP EXPLORER",
+  "version": "1",
+  "default_geography": {
+    "type": "city_council",
+    "value": "6"
+  },
+  "precincts": 1703,
+  "wards": 66,
+  "data_layers": [
+    {
+      "id": "amanda",
+      "election_id": "23P",
+      "contest_id": "23P-COUNCIL-AL-DEM",
+      "choice_name": "AMANDA MCILLMURRAY",
+      "metric": "ACTUAL VOTES / DEM BALLOTS CAST"
+    }
+  ]
+}
