@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>DAVY'S MAP EXPLORER v2.5.2</title>
+<title>DAVY'S MAP EXPLORER v2.5.3</title>
 <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
 <link href="https://fonts.googleapis.com/css2?family=Knewave&display=swap" rel="stylesheet">
 <style>
@@ -204,7 +204,7 @@
       onerror="this.style.display='none'"
     >
     <span class="brand-title">DAVY'S MAP EXPLORER</span>
-    <span class="version-tag">v2.5.2</span>
+    <span class="version-tag">v2.5.3</span>
   </header>
   <aside id="sidebar">
     <div class="group">
@@ -275,7 +275,7 @@
 
 <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
 <script>
-// DAVY'S MAP EXPLORER v2.5.2
+// DAVY'S MAP EXPLORER v2.5.3
 // LIVE DATA: Supabase project THE PORTAL.
 // This is a publishable browser key, not a service-role or secret key.
 const SUPABASE_URL = 'https://bxrxpiqyfnbahmqglkkc.supabase.co';
@@ -628,7 +628,7 @@ function updateStatus() {
   status.innerHTML = `<strong>${typeLabel()}</strong><br>${features.length.toLocaleString()} divisions · ${wards.length} ward${wards.length===1?'':'s'}<br><span style="font-size:10px;letter-spacing:.06em">LIVE FROM SUPABASE</span>`;
 }
 
-async function loadAmanda() {
+async function loadAmandaLegacyUnused() {
   const targetPrecincts = currentPrecincts;
   const args = geographyArgs();
   const rows = await rpc('map_amanda_23p', args);
@@ -713,8 +713,7 @@ async function updateDataLayer() {
   if (active) {
     status.innerHTML = `<strong>${typeLabel()}</strong><br>Loading election layer…`;
     try {
-      if (layer==='amanda') await loadAmanda();
-      // WFP ranks are embedded directly in the precinct GeoJSON by Supabase.
+      // Amanda metrics and WFP ranks are embedded directly in the precinct GeoJSON by Supabase.
     } catch (err) {
       console.error(err);
       status.innerHTML = `<strong>Data layer error</strong><br>${err.message}`;
