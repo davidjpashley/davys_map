@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>DAVY'S MAP EXPLORER v2.5.3</title>
+<title>DAVY'S MAP EXPLORER v2.6</title>
 <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
 <link href="https://fonts.googleapis.com/css2?family=Knewave&display=swap" rel="stylesheet">
 <style>
@@ -186,6 +186,18 @@
   .shift-improved { color:#247a35; font-weight:900; }
   .shift-declined { color:#b42f2f; font-weight:900; }
   .shift-neutral { color:#555; font-weight:900; }
+  .rabb-popup { margin-top:9px; padding-top:8px; border-top:1px solid #e3e3e3; }
+  .rabb-popup-head { font-size:10px; letter-spacing:.06em; text-transform:uppercase; color:#666; font-weight:850; margin-bottom:6px; }
+  .rabb-columns { display:grid; grid-template-columns:42px minmax(92px,1fr) 56px 58px; gap:5px 8px; font-size:9px; text-transform:uppercase; letter-spacing:.04em; color:#888; padding-bottom:3px; border-bottom:1px solid #dedede; }
+  .rabb-columns span:nth-child(3), .rabb-columns span:nth-child(4) { text-align:right; }
+  .rabb-row { display:grid; grid-template-columns:42px minmax(92px,1fr) 56px 58px; gap:5px 8px; align-items:baseline; padding:3px 0; border-bottom:1px solid #f0f0f0; }
+  .rabb-row:last-child { border-bottom:0; }
+  .rabb-row.is-rabb { font-weight:900; }
+  .rabb-rank { font-weight:900; color:#4F3B83; }
+  .rabb-name { font-size:11px; }
+  .rabb-pct { font-weight:850; text-align:right; }
+  .rabb-votes { font-size:10px; color:#555; text-align:right; white-space:nowrap; }
+  .rabb-writein { color:#666; }
   @media (max-width:760px) {
     #app { grid-template-columns:1fr; grid-template-rows:72px auto 1fr; }
     header { grid-column:1; }
@@ -204,7 +216,7 @@
       onerror="this.style.display='none'"
     >
     <span class="brand-title">DAVY'S MAP EXPLORER</span>
-    <span class="version-tag">v2.5.3</span>
+    <span class="version-tag">v2.6</span>
   </header>
   <aside id="sidebar">
     <div class="group">
@@ -241,6 +253,7 @@
         <option value="none">None — geography only</option>
         <option value="wfp_shift">WFP · 2019 → 2023 · Council At-Large rank shift</option>
         <option value="amanda">2023 Primary · Amanda McIllmurray · % of DEM ballots</option>
+        <option value="rabb">2026 Primary · Chris Rabb · % of PA-03 DEM vote</option>
       </select>
       <div id="legend">
         <div id="legendTitle" class="legend-title"></div>
@@ -275,7 +288,7 @@
 
 <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
 <script>
-// DAVY'S MAP EXPLORER v2.5.3
+// DAVY'S MAP EXPLORER v2.6
 // LIVE DATA: Supabase project THE PORTAL.
 // This is a publishable browser key, not a service-role or secret key.
 const SUPABASE_URL = 'https://bxrxpiqyfnbahmqglkkc.supabase.co';
@@ -700,6 +713,17 @@ function setLegend(layer) {
       <div class="legend-row"><span class="swatch" style="background:#2f7d32"></span><span>+6 or better</span></div>`;
     return;
   }
+  if (layer==='rabb') {
+    legend.style.display='block';
+    legendTitle.textContent='Chris Rabb vote share · 2026 PA-03 Democratic Primary';
+    legendRows.innerHTML=`
+      <div class="legend-row"><span class="swatch" style="background:#f3f0e6"></span><span>Under 20%</span></div>
+      <div class="legend-row"><span class="swatch" style="background:#ded3ec"></span><span>20–40%</span></div>
+      <div class="legend-row"><span class="swatch" style="background:#b7a4d4"></span><span>40–60%</span></div>
+      <div class="legend-row"><span class="swatch" style="background:#8065ad"></span><span>60–80%</span></div>
+      <div class="legend-row"><span class="swatch" style="background:#4F3B83"></span><span>80%+</span></div>`;
+    return;
+  }
   legend.style.display='none';
   legendTitle.textContent='';
   legendRows.innerHTML='';
@@ -731,6 +755,15 @@ async function updateDataLayer() {
       ['step',['coalesce',['get','wfp_rank_shift'],0],
         '#8b1e1e',-4,'#c9534f',-1,'#efb0aa',0,'#f3f0e6',1,'#cde8c8',3,'#78ba73',6,'#2f7d32']);
     map.setPaintProperty('precinct-fill','fill-opacity',0.78);
+  } else if (layer==='rabb') {
+    map.setPaintProperty('precinct-fill','fill-color',
+      ['case',
+        ['<',['coalesce',['get','rabb_pct'],-1],0],
+        'rgba(255,255,255,0)',
+        ['step',['coalesce',['get','rabb_pct'],0],
+          '#f3f0e6',20,'#ded3ec',40,'#b7a4d4',60,'#8065ad',80,'#4F3B83']
+      ]);
+    map.setPaintProperty('precinct-fill','fill-opacity',0.8);
   } else {
     map.setPaintProperty('precinct-fill','fill-color','#ffffff');
     map.setPaintProperty('precinct-fill','fill-opacity',0);
@@ -886,6 +919,50 @@ map.on('load', async ()=>{
     return `<span class="${cls}">${label}</span>`;
   }
 
+  function parseRabbResults(raw) {
+    if (Array.isArray(raw)) return raw;
+    if (typeof raw === 'string') {
+      try {
+        const parsed=JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch (_) { return []; }
+    }
+    return [];
+  }
+
+  function rabbRankLabel(row) {
+    if (!row || row.rank==null) return '—';
+    const base=ordinal(Number(row.rank));
+    return row.is_tied ? `T-${base}` : base;
+  }
+
+  function rabbPopupHtml(properties) {
+    const rows=parseRabbResults(properties.rabb_candidate_results);
+    if (!rows.length || properties.rabb_pct==null) {
+      return `<div class="rabb-popup"><div class="rabb-popup-head">2026 DEMOCRATIC PRIMARY · PA-03</div><div class="hint">No PA-03 Democratic primary result for this division.</div></div>`;
+    }
+    const body=rows.map(row=>{
+      const isWriteIn=row.candidate_id==null || String(row.candidate_name).toUpperCase()==='WRITE-IN';
+      const pct=row.pct==null?'—':`${Number(row.pct).toFixed(1)}%`;
+      const votes=Number(row.votes||0).toLocaleString();
+      const rank=isWriteIn?'—':rabbRankLabel(row);
+      const classes=['rabb-row'];
+      if (row.candidate_id==='RABB-3NPB') classes.push('is-rabb');
+      if (isWriteIn) classes.push('rabb-writein');
+      return `<div class="${classes.join(' ')}">
+        <div class="rabb-rank">${rank}</div>
+        <div class="rabb-name">${escapeHtml(row.candidate_name || 'WRITE-IN')}</div>
+        <div class="rabb-pct">${pct}</div>
+        <div class="rabb-votes">${votes} vote${Number(row.votes||0)===1?'':'s'}</div>
+      </div>`;
+    }).join('');
+    return `<div class="rabb-popup">
+      <div class="rabb-popup-head">2026 DEMOCRATIC PRIMARY · PA-03</div>
+      <div class="rabb-columns"><span>Rank</span><span>Candidate</span><span>Percent</span><span>Votes</span></div>
+      ${body}
+    </div>`;
+  }
+
   map.on('click','precinct-fill',(e)=>{
     const p=e.features[0].properties;
     let metric='';
@@ -909,6 +986,7 @@ map.on('load', async ()=>{
         </div>
         <div class="wfp-shift"><span>WFP rank shift</span>${shiftHtml(p.wfp_rank_shift)}</div>
       </div>` : '';
+    const rabb=dataLayer.value==='rabb' ? rabbPopupHtml(p) : '';
     new maplibregl.Popup()
       .setLngLat(e.lngLat)
       .setHTML(`<div class="popup-title">DIVISION ${p.display_id}</div>
@@ -917,7 +995,7 @@ map.on('load', async ()=>{
           <div>Council</div><div class="v">${p.city_council_district ?? '—'}</div>
           <div>PA House</div><div class="v">${p.state_house_district ?? '—'}</div>
           ${metric}
-        </div>${wfp}`)
+        </div>${wfp}${rabb}`)
       .addTo(map);
   });
   map.on('mouseenter','precinct-fill',()=>map.getCanvas().style.cursor='pointer');
