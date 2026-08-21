@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>DAVY'S MAP EXPLORER v2.7</title>
+<title>DAVY'S MAP EXPLORER v2.8</title>
 <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
 <link href="https://fonts.googleapis.com/css2?family=Knewave&display=swap" rel="stylesheet">
 <style>
@@ -145,6 +145,8 @@
   .maplibregl-popup-content {
     font:12px/1.4 ui-sans-serif,system-ui,sans-serif;
     min-width:190px;
+    max-width:calc(100vw - 24px);
+    box-sizing:border-box;
     padding:14px 42px 14px 14px;
     border-radius:8px;
   }
@@ -201,6 +203,26 @@
   .polling-popup-address { font-size:11px; line-height:1.35; color:#444; margin-top:2px; }
   .polling-popup-label { margin-top:9px; padding-top:7px; border-top:1px solid #e3e3e3; font-size:9px; letter-spacing:.08em; text-transform:uppercase; color:#777; font-weight:850; }
   .polling-popup-divisions { margin-top:4px; font-size:11px; line-height:1.45; font-weight:750; }
+  .area-performance { display:none; margin-top:12px; padding-top:11px; border-top:2px solid #111; }
+  .area-performance.is-visible { display:block; }
+  .area-performance-head { font-size:10px; letter-spacing:.09em; text-transform:uppercase; font-weight:900; color:#111; margin-bottom:3px; }
+  .area-performance-area { font-size:13px; line-height:1.25; font-weight:900; margin-bottom:7px; }
+  .area-performance-sub { font-size:9px; line-height:1.35; letter-spacing:.055em; text-transform:uppercase; color:#666; margin-bottom:8px; }
+  .area-columns { display:grid; grid-template-columns:34px minmax(90px,1fr) 51px 54px; gap:4px 6px; font-size:8px; text-transform:uppercase; letter-spacing:.035em; color:#777; padding-bottom:3px; border-bottom:1px solid #d7d7d7; }
+  .area-columns span:nth-child(3), .area-columns span:nth-child(4) { text-align:right; }
+  .area-row { display:grid; grid-template-columns:34px minmax(90px,1fr) 51px 54px; gap:4px 6px; align-items:baseline; padding:4px 0; border-bottom:1px solid #ededed; }
+  .area-row:last-child { border-bottom:0; }
+  .area-rank { font-size:10px; font-weight:900; color:#4F3B83; }
+  .area-name { font-size:10px; line-height:1.2; font-weight:760; }
+  .area-pct { font-size:10px; text-align:right; font-weight:850; }
+  .area-votes { font-size:9px; text-align:right; color:#555; white-space:nowrap; }
+  .area-highlight { font-weight:950; }
+  .area-note { margin-top:7px; font-size:9px; line-height:1.35; color:#686868; }
+  .area-stat-grid { display:grid; grid-template-columns:1fr auto; gap:5px 9px; font-size:10px; }
+  .area-stat-grid .v { font-weight:900; text-align:right; }
+  .bh16-popup { margin-top:9px; padding-top:8px; border-top:1px solid #e3e3e3; }
+  .bh16-popup-head { font-size:10px; letter-spacing:.06em; text-transform:uppercase; color:#666; font-weight:850; margin-bottom:6px; }
+  .bh16-crosswalk-note { margin-top:6px; font-size:9px; line-height:1.35; color:#777; }
   @media (max-width:760px) {
     #app { grid-template-columns:1fr; grid-template-rows:72px auto 1fr; }
     header { grid-column:1; }
@@ -219,7 +241,7 @@
       onerror="this.style.display='none'"
     >
     <span class="brand-title">DAVY'S MAP EXPLORER</span>
-    <span class="version-tag">v2.7</span>
+    <span class="version-tag">v2.8.1</span>
   </header>
   <aside id="sidebar">
     <div class="group">
@@ -257,11 +279,13 @@
         <option value="wfp_shift">WFP · 2019 → 2023 · Council At-Large rank shift</option>
         <option value="amanda">2023 Primary · Amanda McIllmurray · % of DEM ballots</option>
         <option value="rabb">2026 Primary · Chris Rabb · % of PA-03 DEM vote</option>
+        <option value="bernie_hillary">2016 Primary · Bernie Sanders vs Hillary Clinton · margin</option>
       </select>
       <div id="legend">
         <div id="legendTitle" class="legend-title"></div>
         <div id="legendRows"></div>
       </div>
+      <div id="areaPerformance" class="area-performance"></div>
     </div>
 
     <div class="group">
@@ -298,7 +322,7 @@
 
 <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
 <script>
-// DAVY'S MAP EXPLORER v2.7
+// DAVY'S MAP EXPLORER v2.8
 // LIVE DATA: Supabase project THE PORTAL.
 // This is a publishable browser key, not a service-role or secret key.
 const SUPABASE_URL = 'https://bxrxpiqyfnbahmqglkkc.supabase.co';
@@ -311,6 +335,7 @@ const status = document.getElementById('status');
 const legend = document.getElementById('legend');
 const legendTitle = document.getElementById('legendTitle');
 const legendRows = document.getElementById('legendRows');
+const areaPerformance = document.getElementById('areaPerformance');
 const pollingPlacesToggle = document.getElementById('pollingPlacesToggle');
 const basemapToggle = document.getElementById('basemapToggle');
 const basemapTransparency = document.getElementById('basemapTransparency');
@@ -737,6 +762,19 @@ function setLegend(layer) {
       <div class="legend-row"><span class="swatch" style="background:#4F3B83"></span><span>80%+</span></div>`;
     return;
   }
+  if (layer==='bernie_hillary') {
+    legend.style.display='block';
+    legendTitle.textContent='Bernie − Hillary margin · 2016 DEM Primary · CROSSWALKED';
+    legendRows.innerHTML=`
+      <div class="legend-row"><span class="swatch" style="background:#4F3B83"></span><span>Hillary +40 or more</span></div>
+      <div class="legend-row"><span class="swatch" style="background:#8065ad"></span><span>Hillary +20 to +40</span></div>
+      <div class="legend-row"><span class="swatch" style="background:#c4b3dd"></span><span>Hillary +5 to +20</span></div>
+      <div class="legend-row"><span class="swatch" style="background:#f3f0e6"></span><span>Within 5 points</span></div>
+      <div class="legend-row"><span class="swatch" style="background:#b5dfe8"></span><span>Bernie +5 to +20</span></div>
+      <div class="legend-row"><span class="swatch" style="background:#66b6c7"></span><span>Bernie +20 to +40</span></div>
+      <div class="legend-row"><span class="swatch" style="background:#16798a"></span><span>Bernie +40 or more</span></div>`;
+    return;
+  }
   legend.style.display='none';
   legendTitle.textContent='';
   legendRows.innerHTML='';
@@ -777,11 +815,167 @@ async function updateDataLayer() {
           '#f3f0e6',20,'#ded3ec',40,'#b7a4d4',60,'#8065ad',80,'#4F3B83']
       ]);
     map.setPaintProperty('precinct-fill','fill-opacity',0.8);
+  } else if (layer==='bernie_hillary') {
+    map.setPaintProperty('precinct-fill','fill-color',
+      ['step',['coalesce',['get','bh16_sanders_margin_pp'],-999],
+        '#4F3B83',-40,'#8065ad',-20,'#c4b3dd',-5,'#f3f0e6',5,'#b5dfe8',20,'#66b6c7',40,'#16798a']);
+    map.setPaintProperty('precinct-fill','fill-opacity',0.82);
   } else {
     map.setPaintProperty('precinct-fill','fill-color','#ffffff');
     map.setPaintProperty('precinct-fill','fill-opacity',0);
   }
+  updateAreaPerformance();
   updateStatus();
+}
+
+
+function parseCandidateResults(raw) {
+  if (Array.isArray(raw)) return raw;
+  if (typeof raw === 'string') {
+    try {
+      const parsed=JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (_) { return []; }
+  }
+  return [];
+}
+
+function competitionRanks(rows) {
+  const named=rows.filter(r=>!r.isWriteIn).sort((a,b)=>b.votes-a.votes || a.name.localeCompare(b.name));
+  let lastVotes=null, lastRank=0;
+  named.forEach((r,i)=>{
+    if (lastVotes===null || Math.abs(r.votes-lastVotes)>1e-8) lastRank=i+1;
+    r.rank=lastRank;
+    lastVotes=r.votes;
+  });
+  const counts=new Map();
+  named.forEach(r=>counts.set(r.rank,(counts.get(r.rank)||0)+1));
+  named.forEach(r=>r.isTied=(counts.get(r.rank)||0)>1);
+  return [...named,...rows.filter(r=>r.isWriteIn)];
+}
+
+function aggregateCandidateProperty(propertyName) {
+  const totals=new Map();
+  let included=0;
+  for (const f of (currentPrecincts.features||[])) {
+    const rows=parseCandidateResults(f.properties?.[propertyName]);
+    if (!rows.length) continue;
+    included++;
+    for (const row of rows) {
+      const isWriteIn=row.candidate_id==null || String(row.candidate_name||'').toUpperCase()==='WRITE-IN';
+      const key=isWriteIn?'WRITE-IN':String(row.candidate_id||row.candidate_name);
+      if (!totals.has(key)) totals.set(key,{
+        key,
+        candidateId:row.candidate_id||null,
+        name:String(row.candidate_name||'WRITE-IN'),
+        votes:0,
+        isWriteIn
+      });
+      totals.get(key).votes += Number(row.votes||0);
+    }
+  }
+  const rows=[...totals.values()];
+  const contestTotal=rows.reduce((sum,r)=>sum+r.votes,0);
+  rows.forEach(r=>r.pct=contestTotal>0 ? 100*r.votes/contestTotal : null);
+  return {rows:competitionRanks(rows),contestTotal,included,totalSelected:(currentPrecincts.features||[]).length};
+}
+
+function areaRankLabel(row) {
+  if (!row || row.isWriteIn || row.rank==null) return '—';
+  const n=Number(row.rank);
+  const mod100=n%100;
+  const suffix=(mod100>=11 && mod100<=13) ? 'th' : ({1:'st',2:'nd',3:'rd'}[n%10] || 'th');
+  const label=`${n}${suffix}`;
+  return row.isTied ? `T-${label}` : label;
+}
+
+function areaRaceTable(summary, highlightCandidateId=null, voteLabel='Votes') {
+  const rows=summary.rows || [];
+  const header=`<div class="area-columns"><span>Rank</span><span>Candidate</span><span>Percent</span><span>${escapeHtml(voteLabel)}</span></div>`;
+  const body=rows.map(row=>{
+    const cls=row.candidateId===highlightCandidateId?' area-highlight':'';
+    const votes=Math.round(Number(row.votes||0)).toLocaleString();
+    const pct=row.pct==null?'—':`${Number(row.pct).toFixed(1)}%`;
+    return `<div class="area-row${cls}">
+      <div class="area-rank">${areaRankLabel(row)}</div>
+      <div class="area-name">${escapeHtml(row.name)}</div>
+      <div class="area-pct">${pct}</div>
+      <div class="area-votes">${votes}</div>
+    </div>`;
+  }).join('');
+  return header+body;
+}
+
+function updateAreaPerformance() {
+  const layer=dataLayer.value;
+  if (!areaPerformance) return;
+  if (layer==='none') {
+    areaPerformance.classList.remove('is-visible');
+    areaPerformance.innerHTML='';
+    return;
+  }
+  const area=typeLabel();
+  let html='';
+
+  if (layer==='rabb') {
+    const summary=aggregateCandidateProperty('rabb_candidate_results');
+    if (!summary.rows.length) {
+      html=`<div class="area-performance-head">Area performance</div><div class="area-performance-area">${escapeHtml(area)}</div><div class="area-note">No PA-03 Democratic primary results intersect this selection.</div>`;
+    } else {
+      const coverage=summary.included===summary.totalSelected
+        ? `${summary.included.toLocaleString()} contest divisions`
+        : `PA-03 portion · ${summary.included.toLocaleString()} of ${summary.totalSelected.toLocaleString()} selected divisions`;
+      html=`<div class="area-performance-head">Area performance</div>
+        <div class="area-performance-area">${escapeHtml(area)}</div>
+        <div class="area-performance-sub">2026 Democratic Primary · PA-03 · ACTUAL · ${coverage}</div>
+        ${areaRaceTable(summary,'RABB-3NPB')}`;
+    }
+  } else if (layer==='bernie_hillary') {
+    const summary=aggregateCandidateProperty('bh16_candidate_results');
+    html=`<div class="area-performance-head">Area performance</div>
+      <div class="area-performance-area">${escapeHtml(area)}</div>
+      <div class="area-performance-sub">2016 Democratic Presidential Primary · CROSSWALKED TO CURRENT PRECINCTS</div>
+      ${areaRaceTable(summary,null,'Votes*')}
+      <div class="area-note">* Votes are crosswalked from 2016 precinct boundaries to current precinct boundaries using the 2010 population-weighted crosswalk. Percentages include every contest vote, including write-ins.</div>`;
+  } else if (layer==='amanda') {
+    let votes=0, ballots=0, included=0;
+    for (const f of (currentPrecincts.features||[])) {
+      const p=f.properties||{};
+      if (p.amanda_support_pct==null) continue;
+      included++;
+      votes+=Number(p.amanda_actual_votes||0);
+      ballots+=Number(p.dem_ballots_cast||0);
+    }
+    const pct=ballots>0 ? 100*votes/ballots : null;
+    html=`<div class="area-performance-head">Area performance</div>
+      <div class="area-performance-area">${escapeHtml(area)}</div>
+      <div class="area-performance-sub">2023 Democratic Council At-Large Primary · ACTUAL</div>
+      <div class="area-stat-grid">
+        <div>AMANDA MCILLMURRAY votes</div><div class="v">${votes.toLocaleString()}</div>
+        <div>DEM ballots cast</div><div class="v">${ballots.toLocaleString()}</div>
+        <div>Ballots supporting Amanda</div><div class="v">${pct==null?'—':pct.toFixed(1)+'%'}</div>
+      </div>`;
+  } else if (layer==='wfp_shift') {
+    let improved=0,unchanged=0,declined=0,sum=0,n=0;
+    for (const f of (currentPrecincts.features||[])) {
+      const v=f.properties?.wfp_rank_shift;
+      if (v==null || !Number.isFinite(Number(v))) continue;
+      const x=Number(v); n++; sum+=x;
+      if (x>0) improved++; else if (x<0) declined++; else unchanged++;
+    }
+    html=`<div class="area-performance-head">Area performance</div>
+      <div class="area-performance-area">${escapeHtml(area)}</div>
+      <div class="area-performance-sub">WFP Council At-Large precinct rank shift · 2019 → 2023</div>
+      <div class="area-stat-grid">
+        <div>Improved divisions</div><div class="v">${improved.toLocaleString()}</div>
+        <div>Unchanged divisions</div><div class="v">${unchanged.toLocaleString()}</div>
+        <div>Declined divisions</div><div class="v">${declined.toLocaleString()}</div>
+        <div>Average combined-rank shift</div><div class="v">${n?((sum/n)>0?'+':'')+(sum/n).toFixed(1):'—'}</div>
+      </div>`;
+  }
+
+  areaPerformance.innerHTML=html;
+  areaPerformance.classList.toggle('is-visible',Boolean(html));
 }
 
 async function fetchPollingPlaces(args) {
@@ -850,6 +1044,7 @@ async function loadGeography(doFit=true) {
 
     updateStatus();
     if (dataLayer.value!=='none') await updateDataLayer();
+    else updateAreaPerformance();
     if (doFit) fitSelected();
   } catch (err) {
     console.error(err);
@@ -1015,16 +1210,7 @@ map.on('load', async ()=>{
     return [];
   }
 
-  function parseRabbResults(raw) {
-    if (Array.isArray(raw)) return raw;
-    if (typeof raw === 'string') {
-      try {
-        const parsed=JSON.parse(raw);
-        return Array.isArray(parsed) ? parsed : [];
-      } catch (_) { return []; }
-    }
-    return [];
-  }
+  function parseRabbResults(raw) { return parseCandidateResults(raw); }
 
   function rabbRankLabel(row) {
     if (!row || row.rank==null) return '—';
@@ -1056,6 +1242,35 @@ map.on('load', async ()=>{
       <div class="rabb-popup-head">2026 DEMOCRATIC PRIMARY · PA-03</div>
       <div class="rabb-columns"><span>Rank</span><span>Candidate</span><span>Percent</span><span>Votes</span></div>
       ${body}
+    </div>`;
+  }
+
+
+  function bh16PopupHtml(properties) {
+    const rows=parseCandidateResults(properties.bh16_candidate_results);
+    if (!rows.length) return '';
+    const body=rows.map(row=>{
+      const isWriteIn=row.candidate_id==null || String(row.candidate_name||'').toUpperCase()==='WRITE-IN';
+      const pct=row.pct==null?'—':`${Number(row.pct).toFixed(1)}%`;
+      const votes=Math.round(Number(row.votes||0)).toLocaleString();
+      const rank=isWriteIn?'—':rabbRankLabel(row);
+      const classes=['rabb-row'];
+      if (row.candidate_id==='SANDERS-7R43' || row.candidate_id==='CLINTON-1GOF') classes.push('is-rabb');
+      if (isWriteIn) classes.push('rabb-writein');
+      return `<div class="${classes.join(' ')}">
+        <div class="rabb-rank">${rank}</div>
+        <div class="rabb-name">${escapeHtml(row.candidate_name || 'WRITE-IN')}</div>
+        <div class="rabb-pct">${pct}</div>
+        <div class="rabb-votes">${votes}</div>
+      </div>`;
+    }).join('');
+    const m=Number(properties.bh16_sanders_margin_pp);
+    const leader=Number.isFinite(m) ? (m>0?`BERNIE +${m.toFixed(1)}`:m<0?`HILLARY +${Math.abs(m).toFixed(1)}`:'TIE') : '—';
+    return `<div class="bh16-popup">
+      <div class="bh16-popup-head">2016 DEMOCRATIC PRESIDENTIAL PRIMARY · ${leader} PTS</div>
+      <div class="rabb-columns"><span>Rank</span><span>Candidate</span><span>Percent</span><span>Votes*</span></div>
+      ${body}
+      <div class="bh16-crosswalk-note">* Votes are crosswalked from 2016 precinct boundaries to current precinct boundaries using the 2010 population-weighted crosswalk.</div>
     </div>`;
   }
 
@@ -1102,7 +1317,8 @@ map.on('load', async ()=>{
         <div class="wfp-shift"><span>WFP rank shift</span>${shiftHtml(p.wfp_rank_shift)}</div>
       </div>` : '';
     const rabb=dataLayer.value==='rabb' ? rabbPopupHtml(p) : '';
-    new maplibregl.Popup()
+    const bh16=dataLayer.value==='bernie_hillary' ? bh16PopupHtml(p) : '';
+    new maplibregl.Popup({maxWidth:'360px'})
       .setLngLat(e.lngLat)
       .setHTML(`<div class="popup-title">DIVISION ${p.display_id}</div>
         <div class="popup-grid">
@@ -1110,7 +1326,7 @@ map.on('load', async ()=>{
           <div>Council</div><div class="v">${p.city_council_district ?? '—'}</div>
           <div>PA House</div><div class="v">${p.state_house_district ?? '—'}</div>
           ${metric}
-        </div>${wfp}${rabb}`)
+        </div>${wfp}${rabb}${bh16}`)
       .addTo(map);
   });
   map.on('mouseenter','precinct-fill',()=>map.getCanvas().style.cursor='pointer');
