@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>DAVY'S MAP EXPLORER v2.0</title>
+<title>DAVY'S MAP EXPLORER v2.1</title>
 <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
 <link href="https://fonts.googleapis.com/css2?family=Knewave&display=swap" rel="stylesheet">
 <style>
@@ -79,14 +79,55 @@
   .eyebrow { font-size:11px; letter-spacing:.1em; text-transform:uppercase; color:var(--muted); font-weight:800; margin-bottom:6px; }
   .group { margin-bottom:20px; }
   label { font-size:12px; font-weight:750; display:block; margin:0 0 6px; }
-  select,button {
+  select,button,input[type="text"] {
     width:100%; border:1px solid #c9c9c9; background:white; border-radius:7px; padding:9px 10px;
     font:inherit; font-size:13px;
   }
   button { cursor:pointer; font-weight:750; }
+  input[type="text"] { outline:none; }
+  input[type="text"]:focus { border-color:#171717; box-shadow:0 0 0 2px rgba(23,23,23,.08); }
+  .search-row { display:grid; grid-template-columns:1fr 72px; gap:7px; }
+  .search-row button { padding-left:7px; padding-right:7px; }
+  .address-meta { min-height:17px; margin-top:7px; font-size:11px; color:var(--muted); line-height:1.35; }
+  .address-meta.is-error { color:#9f231c; font-weight:700; }
+  .address-clear { width:auto; border:0; background:transparent; padding:2px 0; margin-top:4px; border-radius:0; font-size:11px; text-decoration:underline; text-underline-offset:2px; display:none; }
+  .address-clear:hover { background:transparent; }
+
+  /* Custom address/place pin: Explorer yellow, intentionally icon-free. */
+  .address-marker { width:48px; height:58px; position:relative; cursor:pointer; filter:drop-shadow(-2px 3px 0 rgba(0,0,0,.18)); }
+  .address-marker-pin {
+    position:absolute; left:5px; top:0; width:38px; height:38px;
+    background:#FFD52F; border:3px solid #111; border-radius:50% 50% 50% 0;
+    transform:rotate(-45deg); transform-origin:50% 50%;
+  }
+  .address-marker-dot {
+    position:absolute; left:21px; bottom:0; width:6px; height:6px; border-radius:50%;
+    background:#111; opacity:.18;
+  }
+  .address-popup-name { font-weight:850; font-size:13px; margin-bottom:2px; }
+  .address-popup-sub { font-size:11px; line-height:1.35; color:#555; }
+  .address-popup-source { color:#777; font-size:10px; margin-top:4px; }
+  .address-results { display:none; margin-top:7px; border:1px solid #d7d7d7; border-radius:7px; overflow:hidden; background:#fff; }
+  .address-results.is-open { display:block; }
+  .address-result {
+    display:block; width:100%; border:0; border-bottom:1px solid #e8e8e8; border-radius:0;
+    padding:9px 10px; background:#fff; text-align:left; font-weight:400; cursor:pointer;
+  }
+  .address-result:last-child { border-bottom:0; }
+  .address-result:hover, .address-result:focus { background:#f5f5f5; outline:none; }
+  .address-result.is-selected { background:#fff8d4; }
+  .address-result-title { display:block; font-size:12px; font-weight:850; color:#151515; line-height:1.25; }
+  .address-result-sub { display:block; font-size:10px; color:#666; line-height:1.3; margin-top:2px; }
+
   button:hover { background:#f3f3f3; }
   .checkrow { display:flex; align-items:center; gap:8px; font-size:13px; margin-top:8px; }
   .checkrow input { width:auto; }
+  .toggle-only { display:flex; align-items:center; height:26px; }
+  .toggle-only input { width:38px; height:21px; appearance:none; -webkit-appearance:none; border-radius:999px; background:#c9c9c9; position:relative; cursor:pointer; transition:.16s ease; margin:0; }
+  .toggle-only input::after { content:''; position:absolute; width:17px; height:17px; left:2px; top:2px; border-radius:50%; background:white; box-shadow:0 1px 2px rgba(0,0,0,.25); transition:.16s ease; }
+  .toggle-only input:checked { background:#171717; }
+  .toggle-only input:checked::after { transform:translateX(17px); }
+
   .slider-row { margin-top:10px; }
   .slider-head { display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:6px; }
   .slider-head label { margin:0; }
@@ -151,15 +192,27 @@
       onerror="this.style.display='none'"
     >
     <span class="brand-title">DAVY'S MAP EXPLORER</span>
-    <span class="version-tag">v2.0</span>
+    <span class="version-tag">v2.4</span>
   </header>
   <aside id="sidebar">
+    <div class="group">
+      <div class="eyebrow">LOOKUP</div>
+      <form id="addressForm" autocomplete="off">
+        <div class="search-row">
+          <input id="addressInput" type="text" aria-label="Lookup Philadelphia address or place" spellcheck="false">
+          <button id="addressSearchBtn" type="submit">Find</button>
+        </div>
+      </form>
+      <div id="addressMeta" class="address-meta"></div>
+      <button id="addressClearBtn" class="address-clear" type="button">Clear pin</button>
+    </div>
+
     <div class="group">
       <div class="eyebrow">Geography</div>
       <label for="geoType">Area type</label>
       <select id="geoType">
-        <option value="citywide">Citywide</option>
-        <option value="city_council" selected>City Council District</option>
+        <option value="citywide" selected>Citywide</option>
+        <option value="city_council">City Council District</option>
         <option value="pa_house">PA House District</option>
         <option value="pa_senate">PA Senate District</option>
         <option value="congressional">Congressional District</option>
@@ -172,7 +225,6 @@
 
     <div class="group">
       <div class="eyebrow">Data layer</div>
-      <label for="dataLayer">Shade precincts by</label>
       <select id="dataLayer">
         <option value="none">None — geography only</option>
         <option value="amanda">2023 Primary · Amanda McIllmurray · % of DEM ballots</option>
@@ -189,16 +241,11 @@
 
     <div class="group">
       <div class="eyebrow">Background map</div>
-      <div class="checkrow">
-        <input id="basemapToggle" type="checkbox">
-        <label for="basemapToggle" style="margin:0">Hide background map</label>
+      <div class="toggle-only">
+        <input id="basemapToggle" type="checkbox" checked aria-label="Background map on or off">
       </div>
       <div class="slider-row">
-        <div class="slider-head">
-          <label for="basemapTransparency">Transparency</label>
-          <span id="basemapTransparencyValue" class="slider-value">28%</span>
-        </div>
-        <input id="basemapTransparency" type="range" min="0" max="100" step="1" value="28">
+        <input id="basemapTransparency" type="range" min="0" max="100" step="1" value="72" aria-label="Background map visibility">
       </div>
     </div>
 
@@ -219,7 +266,7 @@
 
 <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
 <script>
-// DAVY'S MAP EXPLORER v2.0
+// DAVY'S MAP EXPLORER v2.1
 // LIVE DATA: Supabase project THE PORTAL.
 // This is a publishable browser key, not a service-role or secret key.
 const SUPABASE_URL = 'https://bxrxpiqyfnbahmqglkkc.supabase.co';
@@ -232,13 +279,215 @@ const status = document.getElementById('status');
 const legend = document.getElementById('legend');
 const basemapToggle = document.getElementById('basemapToggle');
 const basemapTransparency = document.getElementById('basemapTransparency');
-const basemapTransparencyValue = document.getElementById('basemapTransparencyValue');
+const addressForm = document.getElementById('addressForm');
+const addressInput = document.getElementById('addressInput');
+const addressSearchBtn = document.getElementById('addressSearchBtn');
+const addressMeta = document.getElementById('addressMeta');
+const addressClearBtn = document.getElementById('addressClearBtn');
 
 let geographyOptions = {};
 let currentPrecincts = {type:'FeatureCollection',features:[]};
 let currentWards = {type:'FeatureCollection',features:[]};
 let currentBoundary = {type:'FeatureCollection',features:[]};
 let requestSerial = 0;
+let addressMarker = null;
+let addressPopup = null;
+
+const PHILLY_ADDRESS_GEOCODER = 'https://citygeo-geocoder-pub.databridge.phila.gov/arcgis/rest/services/Geocoders/Philly_Composite_Locator/GeocodeServer/findAddressCandidates';
+const PHILLY_PLACE_GEOCODER = 'https://citygeo-geocoder-pub.databridge.phila.gov/arcgis/rest/services/Geocoders/PPR_Composite/GeocodeServer/findAddressCandidates';
+const PHILLY_BBOX = {minX:-75.30, maxX:-74.95, minY:39.84, maxY:40.16};
+let addressCandidates = [];
+let selectedAddressCandidate = -1;
+
+function removeAddressMarker() {
+  if (addressMarker) { addressMarker.remove(); addressMarker = null; }
+  if (addressPopup) { addressPopup.remove(); addressPopup = null; }
+  addressClearBtn.style.display='none';
+}
+
+function clearAddressPin(resetText=false) {
+  removeAddressMarker();
+  addressCandidates=[];
+  selectedAddressCandidate=-1;
+  addressMeta.classList.remove('is-error');
+  addressMeta.textContent='';
+  if (resetText) addressInput.value='';
+}
+
+function makeAddressMarkerElement() {
+  const el=document.createElement('div');
+  el.className='address-marker';
+  el.setAttribute('aria-label','Located address or place');
+  el.innerHTML=`<div class="address-marker-pin"></div><div class="address-marker-dot"></div>`;
+  return el;
+}
+
+function cleanLocalQuery(value) {
+  // The City's local locator does not need a ZIP, city, or state. Sending the street
+  // address by itself is often more reliable, so strip trailing Philadelphia boilerplate.
+  return String(value || '')
+    .trim()
+    .replace(/,?\s+philadelphia(?:,?\s+pa)?(?:\s+19\d{3})?\s*$/i,'')
+    .replace(/,?\s+pa\s+19\d{3}\s*$/i,'')
+    .trim();
+}
+
+function isLikelyAddressQuery(value) {
+  const q=value.trim();
+  return /^\d+\s/.test(q) || /\s(?:&|and|@)\s/i.test(q) || /\b(st|street|ave|avenue|rd|road|blvd|boulevard|dr|drive|ln|lane|ct|court|way|pike|pl|place)\b/i.test(q);
+}
+
+function isInPhillyBounds(location) {
+  if (!location) return false;
+  const x=Number(location.x), y=Number(location.y);
+  return Number.isFinite(x) && Number.isFinite(y) &&
+    x >= PHILLY_BBOX.minX && x <= PHILLY_BBOX.maxX &&
+    y >= PHILLY_BBOX.minY && y <= PHILLY_BBOX.maxY;
+}
+
+async function fetchLocatorCandidates(endpoint, query, source) {
+  const params=new URLSearchParams({
+    SingleLine:cleanLocalQuery(query),
+    f:'json',
+    outSR:'4326',
+    maxLocations:'8',
+    outFields:'*'
+  });
+  const response=await fetch(`${endpoint}?${params.toString()}`);
+  if (!response.ok) throw new Error(`Philadelphia search service returned ${response.status}`);
+  const data=await response.json();
+  if (data.error) throw new Error(data.error.message || 'Philadelphia search service error');
+  return (data.candidates || [])
+    .filter(c=>isInPhillyBounds(c.location))
+    .map(c=>({...c,_source:source}));
+}
+
+function normalizeCandidate(candidate, query) {
+  const a=candidate.attributes || {};
+  const placeName=String(a.PlaceName || '').trim();
+  const matched=String(candidate.address || a.Match_addr || '').trim();
+  const street=String(a.StAddr || '').trim();
+  const placeAddr=String(a.Place_addr || '').trim();
+  const description=String(a.Descr || '').trim();
+  const type=String(a.Type || a.Addr_type || '').trim();
+  const isPlace=Boolean(placeName);
+  const title=(placeName || matched || street || query).toUpperCase();
+  let subtitle='';
+  if (isPlace) subtitle=(placeAddr || street || matched || description).toUpperCase();
+  else subtitle=[type, a.ZIP].filter(Boolean).join(' · ').toUpperCase();
+  const score=Math.round(Number(candidate.score || 0));
+  const addressLike=isLikelyAddressQuery(query);
+  let rank=score;
+  if (isPlace && !addressLike) rank += 20;
+  if (!isPlace && addressLike && candidate._source==='address') rank += 12;
+  if (placeName && placeName.toLowerCase()===query.trim().toLowerCase()) rank += 25;
+  return {
+    raw:candidate,
+    lng:Number(candidate.location.x),
+    lat:Number(candidate.location.y),
+    title, subtitle, score, rank, isPlace,
+    source:candidate._source,
+    type
+  };
+}
+
+function dedupeAndRankCandidates(candidates, query) {
+  const normalized=candidates.map(c=>normalizeCandidate(c,query));
+  normalized.sort((a,b)=>b.rank-a.rank || b.score-a.score);
+  const seen=new Set();
+  const out=[];
+  for (const c of normalized) {
+    // Deduplicate same physical match coming back from both composite locators.
+    const key=`${c.lng.toFixed(5)}|${c.lat.toFixed(5)}|${c.title.replace(/[^A-Z0-9]/g,'')}`;
+    const coordKey=`${c.lng.toFixed(5)}|${c.lat.toFixed(5)}`;
+    if (seen.has(key)) continue;
+    // If a named place and its plain street-address twin share a point, prefer the named place.
+    const twinIndex=out.findIndex(x=>`${x.lng.toFixed(5)}|${x.lat.toFixed(5)}`===coordKey);
+    if (twinIndex>=0 && c.isPlace && !out[twinIndex].isPlace) {
+      out[twinIndex]=c;
+      seen.add(key);
+      continue;
+    }
+    if (twinIndex>=0 && !c.isPlace && out[twinIndex].isPlace) continue;
+    seen.add(key);
+    out.push(c);
+    if (out.length>=6) break;
+  }
+  return out;
+}
+
+async function findPhiladelphiaMatches(query) {
+  // Ask both City locators. The PPR composite can return named Parks & Recreation places;
+  // the Philly composite is optimized for address/street/intersection matching.
+  const settled=await Promise.allSettled([
+    fetchLocatorCandidates(PHILLY_ADDRESS_GEOCODER,query,'address'),
+    fetchLocatorCandidates(PHILLY_PLACE_GEOCODER,query,'place')
+  ]);
+  const candidates=[];
+  let error=null;
+  for (const result of settled) {
+    if (result.status==='fulfilled') candidates.push(...result.value);
+    else error=result.reason;
+  }
+  if (!candidates.length && error) throw error;
+  return dedupeAndRankCandidates(candidates,query);
+}
+
+function candidateSourceLabel(candidate) {
+  return candidate.isPlace ? 'CITY OF PHILADELPHIA PLACE SEARCH' : 'CITY OF PHILADELPHIA ADDRESS GEOCODER';
+}
+
+function pinCandidate(index, fly=true) {
+  const candidate=addressCandidates[index];
+  if (!candidate) return;
+  removeAddressMarker();
+  selectedAddressCandidate=index;
+
+  const sub=candidate.subtitle ? `<div class="address-popup-sub">${escapeHtml(candidate.subtitle)}</div>` : '';
+  addressPopup=new maplibregl.Popup({offset:30,closeButton:true})
+    .setHTML(`<div class="address-popup-name">${escapeHtml(candidate.title)}</div>${sub}<div>${candidate.isPlace?'Place':'Address'} match · ${candidate.score}%</div><div class="address-popup-source">${candidateSourceLabel(candidate)}</div>`);
+  addressMarker=new maplibregl.Marker({element:makeAddressMarkerElement(),anchor:'bottom'})
+    .setLngLat([candidate.lng,candidate.lat])
+    .setPopup(addressPopup)
+    .addTo(map);
+
+  addressMeta.classList.remove('is-error');
+  addressMeta.textContent=candidate.title;
+  addressClearBtn.style.display='inline-block';
+  if (fly) map.flyTo({center:[candidate.lng,candidate.lat],zoom:candidate.isPlace?15.5:16,duration:750,essential:true});
+}
+
+async function searchAddress() {
+  const query=addressInput.value.trim();
+  if (!query) {
+    addressMeta.textContent='Enter a Philadelphia address, intersection, park, or playground.';
+    addressMeta.classList.add('is-error');
+    addressInput.focus();
+    return;
+  }
+  addressSearchBtn.disabled=true;
+  addressMeta.classList.remove('is-error');
+  addressMeta.textContent='Searching Philadelphia…';
+  try {
+    addressCandidates=await findPhiladelphiaMatches(query);
+    if (!addressCandidates.length || Number(addressCandidates[0].score || 0) < 55) {
+      throw new Error('No confident Philadelphia match found. Try a street number, intersection, park, playground, or recreation center name.');
+    }
+    pinCandidate(0,true);
+  } catch (err) {
+    console.error(err);
+    removeAddressMarker();
+    addressCandidates=[];
+    addressMeta.classList.add('is-error');
+    addressMeta.textContent=err.message || 'Philadelphia search failed.';
+  } finally {
+    addressSearchBtn.disabled=false;
+  }
+}
+
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[ch]));
+}
 
 async function rpc(name, args={}) {
   const response = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${name}`, {
@@ -441,12 +690,11 @@ async function loadGeography(doFit=true) {
 
 function updateBasemap() {
   if (!map.getLayer('basemap')) return;
-  const hidden = basemapToggle.checked;
-  const transparency = Number(basemapTransparency.value);
-  const opacity = hidden ? 0 : Math.max(0, Math.min(1, 1 - transparency / 100));
-  map.setPaintProperty('basemap', 'raster-opacity', opacity);
-  basemapTransparency.disabled = hidden;
-  basemapTransparencyValue.textContent = `${transparency}%`;
+  const enabled=basemapToggle.checked;
+  const visibility=Number(basemapTransparency.value);
+  const opacity=enabled ? Math.max(0,Math.min(1,visibility/100)) : 0;
+  map.setPaintProperty('basemap','raster-opacity',opacity);
+  basemapTransparency.disabled=!enabled;
 }
 
 map.on('load', async ()=>{
@@ -552,7 +800,7 @@ map.on('load', async ()=>{
 
   try {
     geographyOptions = await rpc('map_geography_options');
-    populateAreas('6');
+    populateAreas();
     await loadGeography(true);
     updateBasemap();
   } catch (err) {
@@ -568,6 +816,9 @@ geoType.addEventListener('change',async ()=>{
 geoValue.addEventListener('change',()=>loadGeography(true));
 dataLayer.addEventListener('change',updateDataLayer);
 document.getElementById('fitBtn').addEventListener('click',fitSelected);
+
+addressForm.addEventListener('submit',e=>{ e.preventDefault(); searchAddress(); });
+addressClearBtn.addEventListener('click',()=>clearAddressPin(true));
 
 basemapToggle.addEventListener('change', updateBasemap);
 basemapTransparency.addEventListener('input', updateBasemap);
