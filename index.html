@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>DAVY'S MAP EXPLORER v3.13</title>
+<title>DAVY'S MAP EXPLORER v3.14</title>
 <link rel="icon" type="image/png" href="brand-image.png">
 <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
 <link href="https://fonts.googleapis.com/css2?family=Bowlby+One&family=Knewave&display=swap" rel="stylesheet">
@@ -257,7 +257,7 @@
       onerror="this.style.display='none'"
     >
     <span class="brand-title">DAVY'S MAP EXPLORER</span>
-    <span class="version-tag">v3.13</span>
+    <span class="version-tag">v3.14</span>
   </header>
   <aside id="sidebar">
     <div class="group">
@@ -340,7 +340,7 @@
 
 <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
 <script>
-// DAVY'S MAP EXPLORER v3.13
+// DAVY'S MAP EXPLORER v3.14
 // LIVE DATA: Supabase project THE PORTAL.
 // This is a publishable browser key, not a service-role or secret key.
 const SUPABASE_URL = 'https://bxrxpiqyfnbahmqglkkc.supabase.co';
@@ -922,8 +922,6 @@ function populateAreas(preferredValue=null) {
 
   if (preferredValue != null && arr.map(String).includes(String(preferredValue))) {
     geoValue.value=String(preferredValue);
-  } else if (type === 'city_council' && arr.map(String).includes('6')) {
-    geoValue.value='6';
   }
 }
 
