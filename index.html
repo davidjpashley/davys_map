@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>DAVY'S MAP EXPLORER v2.9</title>
+<title>DAVY'S MAP EXPLORER v3.10</title>
 <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
 <link href="https://fonts.googleapis.com/css2?family=Knewave&display=swap" rel="stylesheet">
 <style>
@@ -229,6 +229,20 @@
     #sidebar { border-right:0; border-bottom:1px solid #ddd; display:grid; grid-template-columns:1fr 1fr; gap:12px; padding:12px; max-height:42vh; }
     .group { margin:0; }
   }
+
+  /* Lightweight in-browser polygon sketch controls. No persistence or data collection. */
+  .maplibregl-ctrl.draw-ctrl { overflow:hidden; }
+  .draw-ctrl button {
+    width:34px; height:34px; min-width:34px; padding:0; border:0; border-radius:0;
+    background:#fff; color:#171717; font:800 17px/34px ui-sans-serif,system-ui,sans-serif;
+    display:block; text-align:center; box-shadow:none;
+  }
+  .draw-ctrl button + button { border-top:1px solid #ddd; }
+  .draw-ctrl button:hover { background:#f3f3f3; }
+  .draw-ctrl button.is-active { background:#FFD52F; color:#111; }
+  .draw-ctrl button:disabled { color:#aaa; background:#f7f7f7; cursor:default; }
+  .draw-ctrl .draw-clear { font-size:15px; }
+
 </style>
 </head>
 <body>
@@ -241,7 +255,7 @@
       onerror="this.style.display='none'"
     >
     <span class="brand-title">DAVY'S MAP EXPLORER</span>
-    <span class="version-tag">v3.0</span>
+    <span class="version-tag">v3.10</span>
   </header>
   <aside id="sidebar">
     <div class="group">
@@ -324,7 +338,7 @@
 
 <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
 <script>
-// DAVY'S MAP EXPLORER v3.0
+// DAVY'S MAP EXPLORER v3.10
 // LIVE DATA: Supabase project THE PORTAL.
 // This is a publishable browser key, not a service-role or secret key.
 const SUPABASE_URL = 'https://bxrxpiqyfnbahmqglkkc.supabase.co';
@@ -586,21 +600,294 @@ const map = new maplibregl.Map({
 });
 map.addControl(new maplibregl.NavigationControl({showCompass:false}), 'top-right');
 
+// Simple local-only polygon sketch layer. Nothing is sent to Supabase or persisted.
+let sketchMode=false;
+let sketchCurrent=[];
+let sketchCompleted=[];
+let sketchControl=null;
+
+function emptyFeatureCollection() { return {type:'FeatureCollection',features:[]}; }
+
+function sketchPolygonFeatures() {
+  return {
+    type:'FeatureCollection',
+    features:sketchCompleted.map((ring,i)=>({
+      type:'Feature',
+      properties:{sketch_id:i+1},
+      geometry:{type:'Polygon',coordinates:[ring]}
+    }))
+  };
+}
+
+function sketchLineFeature() {
+  if (sketchCurrent.length < 2) return emptyFeatureCollection();
+  return {type:'FeatureCollection',features:[{
+    type:'Feature',properties:{},geometry:{type:'LineString',coordinates:sketchCurrent}
+  }]};
+}
+
+function sketchVertexFeatures() {
+  return {
+    type:'FeatureCollection',
+    features:sketchCurrent.map((coord,i)=>({
+      type:'Feature',
+      properties:{is_first:i===0},
+      geometry:{type:'Point',coordinates:coord}
+    }))
+  };
+}
+
+function updateSketchSources() {
+  const polygons=map.getSource('sketch-polygons');
+  const line=map.getSource('sketch-line');
+  const vertices=map.getSource('sketch-vertices');
+  if (polygons) polygons.setData(sketchPolygonFeatures());
+  if (line) line.setData(sketchLineFeature());
+  if (vertices) vertices.setData(sketchVertexFeatures());
+  if (sketchControl) sketchControl.refresh();
+}
+
+function setSketchMode(enabled) {
+  sketchMode=Boolean(enabled);
+  map.getCanvas().style.cursor=sketchMode?'crosshair':'';
+  if (sketchControl) sketchControl.refresh();
+}
+
+function undoSketchClick() {
+  if (sketchCurrent.length) {
+    sketchCurrent.pop();
+  } else if (sketchCompleted.length) {
+    // First undo after closing a polygon reopens it; another undo removes its last vertex.
+    const ring=sketchCompleted.pop();
+    sketchCurrent=ring.slice(0,-1);
+  }
+  updateSketchSources();
+}
+
+function clearSketches() {
+  sketchCurrent=[];
+  sketchCompleted=[];
+  updateSketchSources();
+}
+
+function sketchCanClose(clickPoint) {
+  if (sketchCurrent.length < 3) return false;
+  const first=map.project({lng:sketchCurrent[0][0],lat:sketchCurrent[0][1]});
+  return Math.hypot(clickPoint.x-first.x,clickPoint.y-first.y) <= 14;
+}
+
+class SketchControl {
+  onAdd(mapInstance) {
+    this.map=mapInstance;
+    this.container=document.createElement('div');
+    this.container.className='maplibregl-ctrl maplibregl-ctrl-group draw-ctrl';
+
+    this.drawBtn=document.createElement('button');
+    this.drawBtn.type='button';
+    this.drawBtn.innerHTML='✎';
+    this.drawBtn.title='Draw polygons';
+    this.drawBtn.setAttribute('aria-label','Draw polygons');
+    this.drawBtn.addEventListener('click',()=>setSketchMode(!sketchMode));
+
+    this.undoBtn=document.createElement('button');
+    this.undoBtn.type='button';
+    this.undoBtn.innerHTML='↶';
+    this.undoBtn.title='Undo last polygon click';
+    this.undoBtn.setAttribute('aria-label','Undo last polygon click');
+    this.undoBtn.addEventListener('click',undoSketchClick);
+
+    this.clearBtn=document.createElement('button');
+    this.clearBtn.type='button';
+    this.clearBtn.className='draw-clear';
+    this.clearBtn.innerHTML='×';
+    this.clearBtn.title='Clear drawn polygons';
+    this.clearBtn.setAttribute('aria-label','Clear drawn polygons');
+    this.clearBtn.addEventListener('click',clearSketches);
+
+    this.container.append(this.drawBtn,this.undoBtn,this.clearBtn);
+    this.refresh();
+    return this.container;
+  }
+  refresh() {
+    if (!this.container) return;
+    this.drawBtn.classList.toggle('is-active',sketchMode);
+    this.drawBtn.title=sketchMode?'Stop drawing':'Draw polygons';
+    this.undoBtn.disabled=!(sketchCurrent.length || sketchCompleted.length);
+    this.clearBtn.disabled=!(sketchCurrent.length || sketchCompleted.length);
+  }
+  onRemove() {
+    this.container?.remove();
+    this.map=null;
+  }
+}
+
+sketchControl=new SketchControl();
+map.addControl(sketchControl,'top-right');
+
+
+const ALL_DISTRICT_TYPES = new Set(['city_council','pa_house','pa_senate','congressional']);
+
+// Stable district colors. These are intentionally keyed to the permanent district number,
+// so a district keeps the same color in ALL mode and when viewed by itself.
+const DISTRICT_COLORS = {
+  city_council: {
+    '1':'#1F77B4','2':'#FF7F0E','3':'#2CA02C','4':'#D62728','5':'#9467BD',
+    '6':'#17A2B8','7':'#E377C2','8':'#8C564B','9':'#BCBD22','10':'#4B5CC4'
+  },
+  pa_house: {
+    '10':'#1F77B4','170':'#FF7F0E','172':'#2CA02C','173':'#D62728','174':'#9467BD','175':'#8C564B',
+    '177':'#E377C2','179':'#7F7F7F','180':'#BCBD22','181':'#17BECF','182':'#393B79','184':'#637939',
+    '185':'#8C6D31','186':'#843C39','188':'#7B4173','190':'#3182BD','191':'#31A354','192':'#756BB1',
+    '194':'#E6550D','195':'#636363','197':'#6BAED6','198':'#74C476','200':'#9E9AC8','201':'#FD8D3C',
+    '202':'#969696','203':'#E7BA52'
+  },
+  pa_senate: {
+    '1':'#1F77B4','2':'#FF7F0E','3':'#2CA02C','4':'#D62728','5':'#9467BD','7':'#17A2B8','8':'#E377C2'
+  },
+  congressional: {
+    '2':'#1F77B4','3':'#D62728','5':'#2CA02C'
+  }
+};
+
+function districtColor(type, value) {
+  const keyed=DISTRICT_COLORS[type] || {};
+  return keyed[String(value)] || '#4F3B83';
+}
+
+function districtColorExpression(type) {
+  const keyed=DISTRICT_COLORS[type] || {};
+  const expression=['match',['to-string',['get','district_number']]];
+  Object.entries(keyed).forEach(([district,color])=>expression.push(district,color));
+  expression.push('#4F3B83');
+  return expression;
+}
+
+let selectedAllDistrictId=null;
+
+function updateSelectedDistrictHighlight(districtId=null) {
+  selectedAllDistrictId=districtId || null;
+  if (!map.getLayer('selected-boundary-highlight')) return;
+  map.setFilter('selected-boundary-highlight', selectedAllDistrictId
+    ? ['==',['get','district_id'],selectedAllDistrictId]
+    : ['==',['get','district_id'],'__NO_SELECTED_DISTRICT__']);
+}
+
+function applyBoundaryStyle() {
+  if (!map.getLayer('selected-boundary-line')) return;
+  const all=isAllDistricts();
+  const color=all
+    ? districtColorExpression(geoType.value)
+    : (ALL_DISTRICT_TYPES.has(geoType.value) ? districtColor(geoType.value,geoValue.value) : '#4F3B83');
+
+  map.setPaintProperty('selected-boundary-line','line-color',color);
+  map.setPaintProperty('selected-boundary-line','line-offset',all
+    ? ['interpolate',['linear'],['zoom'],8,2.0,12,2.6,15,3.2]
+    : 0);
+  map.setPaintProperty('selected-boundary-line','line-width',all
+    ? ['interpolate',['linear'],['zoom'],8,2.4,12,3.0,15,3.6]
+    : ['interpolate',['linear'],['zoom'],8,2.6,12,3.5]);
+
+  if (map.getLayer('selected-boundary-fill')) {
+    map.setPaintProperty('selected-boundary-fill','fill-color',all ? districtColorExpression(geoType.value) : '#4F3B83');
+    map.setPaintProperty('selected-boundary-fill','fill-opacity',all ? 0.085 : 0);
+    map.setLayoutProperty('selected-boundary-fill','visibility',all ? 'visible' : 'none');
+  }
+
+  if (map.getLayer('selected-boundary-casing')) {
+    map.setPaintProperty('selected-boundary-casing','line-color','#ffffff');
+    map.setPaintProperty('selected-boundary-casing','line-offset',0);
+    map.setPaintProperty('selected-boundary-casing','line-width',all
+      ? ['interpolate',['linear'],['zoom'],8,1.5,12,2.0,15,2.4]
+      : ['interpolate',['linear'],['zoom'],8,4.4,12,5.4]);
+    map.setPaintProperty('selected-boundary-casing','line-opacity',all ? 0.98 : 0.82);
+  }
+
+  if (map.getLayer('selected-boundary-highlight')) {
+    map.setLayoutProperty('selected-boundary-highlight','visibility',all ? 'visible' : 'none');
+    map.setPaintProperty('selected-boundary-highlight','line-width',
+      ['interpolate',['linear'],['zoom'],8,5.4,12,7.0,15,8.2]);
+    map.setPaintProperty('selected-boundary-highlight','line-opacity',all ? 0.98 : 0);
+  }
+
+  if (map.getLayer('selected-boundary-hitbox')) {
+    map.setLayoutProperty('selected-boundary-hitbox','visibility',all ? 'visible' : 'none');
+  }
+}
+
+function bringSketchLayersToFront() {
+  ['sketch-polygon-fill','sketch-polygon-line','sketch-active-line','sketch-vertices'].forEach(id=>{
+    if (map.getLayer(id)) map.moveLayer(id);
+  });
+}
+
+function updateBoundaryLayerOrder() {
+  if (!map.getLayer('selected-boundary-line')) return;
+  if (isAllDistricts()) {
+    // ALL districts remain the top data-interaction layer so district clicks win over precinct clicks.
+    // Sketch graphics are then drawn visually above it; their normal layer clicks are disabled while drawing.
+    if (map.getLayer('selected-boundary-fill')) map.moveLayer('selected-boundary-fill');
+    if (map.getLayer('selected-boundary-casing')) map.moveLayer('selected-boundary-casing');
+    map.moveLayer('selected-boundary-line');
+    if (map.getLayer('selected-boundary-highlight')) map.moveLayer('selected-boundary-highlight');
+    if (map.getLayer('selected-boundary-hitbox')) map.moveLayer('selected-boundary-hitbox');
+  } else {
+    // Restore the normal selected-area boundary beneath labels/points outside ALL mode.
+    const before=map.getLayer('ward-labels') ? 'ward-labels' : undefined;
+    if (before) {
+      if (map.getLayer('selected-boundary-fill')) map.moveLayer('selected-boundary-fill',before);
+      if (map.getLayer('selected-boundary-casing')) map.moveLayer('selected-boundary-casing',before);
+      map.moveLayer('selected-boundary-line',before);
+      if (map.getLayer('selected-boundary-highlight')) map.moveLayer('selected-boundary-highlight',before);
+      if (map.getLayer('selected-boundary-hitbox')) map.moveLayer('selected-boundary-hitbox',before);
+    }
+  }
+  bringSketchLayersToFront();
+}
+
+function isAllDistricts() {
+  return ALL_DISTRICT_TYPES.has(geoType.value) && geoValue.value === 'ALL';
+}
+
 function geographyArgs() {
+  if (isAllDistricts()) {
+    return {p_geography_type:'citywide',p_geography_value:null};
+  }
   return {
     p_geography_type: geoType.value,
     p_geography_value: geoType.value === 'citywide' ? null : geoValue.value
   };
 }
 
+function boundaryArgs() {
+  return {
+    p_geography_type: geoType.value,
+    p_geography_value: geoType.value === 'citywide' ? null : geoValue.value
+  };
+}
+
+function wardDisplayLabel(value, includeStructure=false) {
+  const id=String(value);
+  const meta=geographyOptions?.ward_metadata?.[id];
+  const base=`Ward ${id}`;
+  return includeStructure && meta?.governance_type ? `${base} · ${meta.governance_type} Ward` : base;
+}
+
 function typeLabel() {
+  if (isAllDistricts()) {
+    return {
+      city_council:'All City Council Districts',
+      pa_house:'All PA House Districts',
+      pa_senate:'All PA Senate Districts',
+      congressional:'All U.S. House Districts'
+    }[geoType.value];
+  }
   return {
     citywide:'Philadelphia',
     city_council:`City Council District ${geoValue.value}`,
     pa_house:`PA House District ${geoValue.value}`,
     pa_senate:`PA Senate District ${geoValue.value}`,
     congressional:`Congressional District ${geoValue.value}`,
-    ward:`Ward ${String(geoValue.value).padStart(2,'0')}`
+    ward:wardDisplayLabel(geoValue.value,false)
   }[geoType.value];
 }
 
@@ -618,10 +905,16 @@ function populateAreas(preferredValue=null) {
 
   geoValue.disabled = false;
   const arr = geographyOptions[type] || [];
+  if (ALL_DISTRICT_TYPES.has(type)) {
+    const allOption=document.createElement('option');
+    allOption.value='ALL';
+    allOption.textContent='ALL';
+    geoValue.appendChild(allOption);
+  }
   arr.forEach(v => {
     const o=document.createElement('option');
     o.value=String(v);
-    o.textContent = type === 'ward' ? `Ward ${String(v).padStart(2,'0')}` : String(v);
+    o.textContent = type === 'ward' ? wardDisplayLabel(v,false) : String(v);
     geoValue.appendChild(o);
   });
 
@@ -1144,6 +1437,7 @@ async function updatePollingPlaces() {
 }
 
 async function loadGeography(doFit=true) {
+  updateSelectedDistrictHighlight(null);
   const serial=++requestSerial;
   status.innerHTML='<strong>Loading live geography…</strong>';
   geoType.disabled=true;
@@ -1154,7 +1448,7 @@ async function loadGeography(doFit=true) {
     const [precincts,wards,boundary,pollingPlaces] = await Promise.all([
       rpc('map_precinct_geojson',args),
       rpc('map_ward_geojson',args),
-      rpc('map_selected_boundary_geojson',args),
+      rpc('map_selected_boundary_geojson',boundaryArgs()),
       fetchPollingPlaces(args)
     ]);
     if (serial !== requestSerial) return;
@@ -1169,6 +1463,8 @@ async function loadGeography(doFit=true) {
     map.getSource('ward-label-points').setData(wardLabelPoints(currentWards));
     map.getSource('selected-boundary').setData(currentBoundary);
     map.getSource('polling-places').setData(currentPollingPlaces);
+    applyBoundaryStyle();
+    updateBoundaryLayerOrder();
     setPollingVisibility();
 
     updateStatus();
@@ -1242,14 +1538,55 @@ map.on('load', async ()=>{
     }
   });
 
+  // In ALL mode, use a very faint district-colored wash to make irregular district shapes
+  // legible without overpowering the election/data layer underneath. Hidden in single-area views.
+  map.addLayer({
+    id:'selected-boundary-fill',type:'fill',source:'selected-boundary',
+    layout:{'visibility':'none'},
+    paint:{'fill-color':'#4F3B83','fill-opacity':0}
+  });
+
+  map.addLayer({
+    id:'selected-boundary-casing',type:'line',source:'selected-boundary',
+    paint:{
+      'line-color':'#ffffff',
+      'line-width':['interpolate',['linear'],['zoom'],8,4.4,12,5.4],
+      'line-opacity':0.82
+    }
+  });
+
   map.addLayer({
     id:'selected-boundary-line',type:'line',source:'selected-boundary',
     paint:{
       'line-color':'#4F3B83',
       'line-width':['interpolate',['linear'],['zoom'],8,2.6,12,3.5],
+      'line-offset':0,
       'line-opacity':1
     }
   });
+
+  // ALL-mode selected district halo. The normal district color/fill remains intact;
+  // this centered white perimeter simply makes the clicked district read as selected.
+  map.addLayer({
+    id:'selected-boundary-highlight',type:'line',source:'selected-boundary',
+    layout:{'visibility':'none'},
+    filter:['==',['get','district_id'],'__NO_SELECTED_DISTRICT__'],
+    paint:{
+      'line-color':'#ffffff',
+      'line-width':['interpolate',['linear'],['zoom'],8,5.4,12,7.0,15,8.2],
+      'line-opacity':0.98,
+      'line-blur':0.35
+    }
+  });
+
+  // Transparent polygon hit area. Visible to hit-testing only in ALL mode, so clicking
+  // anywhere inside a district identifies the district instead of falling through to a precinct.
+  map.addLayer({
+    id:'selected-boundary-hitbox',type:'fill',source:'selected-boundary',
+    layout:{'visibility':'none'},
+    paint:{'fill-color':'#000000','fill-opacity':0.001}
+  });
+  applyBoundaryStyle();
 
   map.addLayer({
     id:'ward-labels',type:'symbol',source:'ward-label-points',minzoom:8.1,maxzoom:12.8,
@@ -1304,6 +1641,46 @@ map.on('load', async ()=>{
       'visibility':'none'
     }
   });
+
+  map.addSource('sketch-polygons',{type:'geojson',data:emptyFeatureCollection()});
+  map.addSource('sketch-line',{type:'geojson',data:emptyFeatureCollection()});
+  map.addSource('sketch-vertices',{type:'geojson',data:emptyFeatureCollection()});
+  map.addLayer({
+    id:'sketch-polygon-fill',type:'fill',source:'sketch-polygons',
+    paint:{'fill-color':'#FFD52F','fill-opacity':0.18}
+  });
+  map.addLayer({
+    id:'sketch-polygon-line',type:'line',source:'sketch-polygons',
+    paint:{'line-color':'#111111','line-width':2.4,'line-opacity':0.95}
+  });
+  map.addLayer({
+    id:'sketch-active-line',type:'line',source:'sketch-line',
+    paint:{'line-color':'#111111','line-width':2.4,'line-dasharray':[2,1.3]}
+  });
+  map.addLayer({
+    id:'sketch-vertices',type:'circle',source:'sketch-vertices',
+    paint:{
+      'circle-radius':['case',['get','is_first'],6,4.5],
+      'circle-color':['case',['get','is_first'],'#FFD52F','#ffffff'],
+      'circle-stroke-color':'#111111',
+      'circle-stroke-width':2
+    }
+  });
+  updateBoundaryLayerOrder();
+  // Keep sketches visually above district/precinct layers even when ALL mode reorders its hitbox.
+  bringSketchLayersToFront();
+
+  map.on('click',(e)=>{
+    if (!sketchMode) return;
+    if (sketchCanClose(e.point)) {
+      sketchCompleted.push([...sketchCurrent,sketchCurrent[0]]);
+      sketchCurrent=[];
+    } else {
+      sketchCurrent.push([e.lngLat.lng,e.lngLat.lat]);
+    }
+    updateSketchSources();
+  });
+  map.on('mousemove',()=>{ if (sketchMode) map.getCanvas().style.cursor='crosshair'; });
 
   function ordinal(value) {
     if (value==null || !Number.isFinite(Number(value))) return '—';
@@ -1462,6 +1839,7 @@ map.on('load', async ()=>{
   }
 
   map.on('click','polling-place-stars',(e)=>{
+    if (sketchMode) return;
     const p=e.features[0].properties || {};
     const names=parseJsonArray(p.polling_place_names);
     const divisions=parseJsonArray(p.divisions);
@@ -1476,11 +1854,36 @@ map.on('load', async ()=>{
         <div class="polling-popup-divisions">${divisionsHtml}</div>`)
       .addTo(map);
   });
-  map.on('mouseenter','polling-place-stars',()=>map.getCanvas().style.cursor='pointer');
-  map.on('mouseleave','polling-place-stars',()=>map.getCanvas().style.cursor='');
+  map.on('mouseenter','polling-place-stars',()=>map.getCanvas().style.cursor=sketchMode?'crosshair':'pointer');
+  map.on('mouseleave','polling-place-stars',()=>map.getCanvas().style.cursor=sketchMode?'crosshair':'');
+
+  function showAllDistrictPopup(e) {
+    if (sketchMode) return;
+    if (!isAllDistricts()) return;
+    const p=(e.features && e.features[0] && e.features[0].properties) || {};
+    const districtName=p.district_name || [p.district_type,p.district_number].filter(Boolean).join(' ');
+    if (!districtName) return;
+    const popupColor=districtColor(geoType.value,p.district_number);
+    updateSelectedDistrictHighlight(p.district_id || null);
+    new maplibregl.Popup({maxWidth:'300px'})
+      .setLngLat(e.lngLat)
+      .setHTML(`<div class="popup-title"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${popupColor};margin-right:6px;vertical-align:1px"></span>${escapeHtml(districtName)}</div>`)
+      .addTo(map);
+  }
+
+  map.on('click','selected-boundary-hitbox',showAllDistrictPopup);
+  map.on('mouseenter','selected-boundary-hitbox',()=>{
+    if (sketchMode) map.getCanvas().style.cursor='crosshair';
+    else if (isAllDistricts()) map.getCanvas().style.cursor='pointer';
+  });
+  map.on('mouseleave','selected-boundary-hitbox',()=>{
+    map.getCanvas().style.cursor=sketchMode?'crosshair':'';
+  });
 
   map.on('click','precinct-fill',(e)=>{
+    if (sketchMode) return;
     if (pollingPlacesToggle.checked && map.queryRenderedFeatures(e.point,{layers:['polling-place-stars']}).length) return;
+    if (isAllDistricts() && map.queryRenderedFeatures(e.point,{layers:['selected-boundary-hitbox']}).length) return;
     const p=e.features[0].properties;
     let metric='';
     if (dataLayer.value==='amanda') {
@@ -1530,8 +1933,8 @@ map.on('load', async ()=>{
         </div>${wfp}${rabb}${ht24}${dg24}${bh16}${th16}`)
       .addTo(map);
   });
-  map.on('mouseenter','precinct-fill',()=>map.getCanvas().style.cursor='pointer');
-  map.on('mouseleave','precinct-fill',()=>map.getCanvas().style.cursor='');
+  map.on('mouseenter','precinct-fill',()=>map.getCanvas().style.cursor=sketchMode?'crosshair':'pointer');
+  map.on('mouseleave','precinct-fill',()=>map.getCanvas().style.cursor=sketchMode?'crosshair':'');
 
   try {
     geographyOptions = await rpc('map_geography_options');
@@ -1564,6 +1967,15 @@ document.getElementById('wardLabelsToggle').addEventListener('change',e=>{
 });
 document.getElementById('divisionLabelsToggle').addEventListener('change',e=>{
   map.setLayoutProperty('division-labels','visibility',e.target.checked?'visible':'none');
+});
+
+document.addEventListener('keydown',e=>{
+  if (e.key==='Escape' && sketchMode) {
+    setSketchMode(false);
+  } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase()==='z' && sketchMode) {
+    e.preventDefault();
+    undoSketchClick();
+  }
 });
 </script>
 </body>
