@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>DAVY'S MAP EXPLORER v2.8</title>
+<title>DAVY'S MAP EXPLORER v2.9</title>
 <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
 <link href="https://fonts.googleapis.com/css2?family=Knewave&display=swap" rel="stylesheet">
 <style>
@@ -241,7 +241,7 @@
       onerror="this.style.display='none'"
     >
     <span class="brand-title">DAVY'S MAP EXPLORER</span>
-    <span class="version-tag">v2.8.2</span>
+    <span class="version-tag">v2.9</span>
   </header>
   <aside id="sidebar">
     <div class="group">
@@ -280,6 +280,7 @@
         <option value="amanda">2023 Primary · Amanda McIllmurray · % of DEM ballots</option>
         <option value="rabb">2026 Primary · Chris Rabb · % of PA-03 DEM vote</option>
         <option value="bernie_hillary">2016 Primary · Bernie Sanders vs Hillary Clinton · margin</option>
+        <option value="trump_hillary">2016 General · Donald Trump vs Hillary Clinton · margin</option>
       </select>
       <div id="legend">
         <div id="legendTitle" class="legend-title"></div>
@@ -322,7 +323,7 @@
 
 <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
 <script>
-// DAVY'S MAP EXPLORER v2.8
+// DAVY'S MAP EXPLORER v2.9
 // LIVE DATA: Supabase project THE PORTAL.
 // This is a publishable browser key, not a service-role or secret key.
 const SUPABASE_URL = 'https://bxrxpiqyfnbahmqglkkc.supabase.co';
@@ -775,6 +776,19 @@ function setLegend(layer) {
       <div class="legend-row"><span class="swatch" style="background:#16798a"></span><span>Bernie +40 or more</span></div>`;
     return;
   }
+  if (layer==='trump_hillary') {
+    legend.style.display='block';
+    legendTitle.textContent='Trump − Hillary margin · 2016 General · CROSSWALKED';
+    legendRows.innerHTML=`
+      <div class="legend-row"><span class="swatch" style="background:#214f91"></span><span>Hillary +40 or more</span></div>
+      <div class="legend-row"><span class="swatch" style="background:#648bc1"></span><span>Hillary +20 to +40</span></div>
+      <div class="legend-row"><span class="swatch" style="background:#b7c9e2"></span><span>Hillary +5 to +20</span></div>
+      <div class="legend-row"><span class="swatch" style="background:#f3f0e6"></span><span>Within 5 points</span></div>
+      <div class="legend-row"><span class="swatch" style="background:#eab8b8"></span><span>Trump +5 to +20</span></div>
+      <div class="legend-row"><span class="swatch" style="background:#d46767"></span><span>Trump +20 to +40</span></div>
+      <div class="legend-row"><span class="swatch" style="background:#9d2929"></span><span>Trump +40 or more</span></div>`;
+    return;
+  }
   legend.style.display='none';
   legendTitle.textContent='';
   legendRows.innerHTML='';
@@ -819,6 +833,11 @@ async function updateDataLayer() {
     map.setPaintProperty('precinct-fill','fill-color',
       ['step',['coalesce',['get','bh16_sanders_margin_pp'],-999],
         '#4F3B83',-40,'#8065ad',-20,'#c4b3dd',-5,'#f3f0e6',5,'#b5dfe8',20,'#66b6c7',40,'#16798a']);
+    map.setPaintProperty('precinct-fill','fill-opacity',0.82);
+  } else if (layer==='trump_hillary') {
+    map.setPaintProperty('precinct-fill','fill-color',
+      ['step',['coalesce',['get','th16_trump_margin_pp'],-999],
+        '#214f91',-40,'#648bc1',-20,'#b7c9e2',-5,'#f3f0e6',5,'#eab8b8',20,'#d46767',40,'#9d2929']);
     map.setPaintProperty('precinct-fill','fill-opacity',0.82);
   } else {
     map.setPaintProperty('precinct-fill','fill-color','#ffffff');
@@ -935,6 +954,13 @@ async function updateAreaPerformance() {
     html=`<div class="area-performance-head">Area performance</div>
       <div class="area-performance-area">${escapeHtml(area)}</div>
       <div class="area-performance-sub">2016 Democratic Presidential Primary · CROSSWALKED TO CURRENT PRECINCTS</div>
+      ${areaRaceTable(summary,null,'Votes*')}
+      <div class="area-note">* Votes are crosswalked from 2016 precinct boundaries to current precinct boundaries using the 2010 population-weighted crosswalk. Percentages include every contest vote, including write-ins.</div>`;
+  } else if (layer==='trump_hillary') {
+    const summary=aggregateCandidateProperty('th16_candidate_results');
+    html=`<div class="area-performance-head">Area performance</div>
+      <div class="area-performance-area">${escapeHtml(area)}</div>
+      <div class="area-performance-sub">2016 Presidential General Election · CROSSWALKED TO CURRENT PRECINCTS</div>
       ${areaRaceTable(summary,null,'Votes*')}
       <div class="area-note">* Votes are crosswalked from 2016 precinct boundaries to current precinct boundaries using the 2010 population-weighted crosswalk. Percentages include every contest vote, including write-ins.</div>`;
   } else if (layer==='amanda') {
@@ -1279,6 +1305,34 @@ map.on('load', async ()=>{
     </div>`;
   }
 
+  function th16PopupHtml(properties) {
+    const rows=parseCandidateResults(properties.th16_candidate_results);
+    if (!rows.length) return '';
+    const body=rows.map(row=>{
+      const isWriteIn=row.candidate_id==null || String(row.candidate_name||'').toUpperCase()==='WRITE-IN';
+      const pct=row.pct==null?'—':`${Number(row.pct).toFixed(1)}%`;
+      const votes=Math.round(Number(row.votes||0)).toLocaleString();
+      const rank=isWriteIn?'—':rabbRankLabel(row);
+      const classes=['rabb-row'];
+      if (row.candidate_id==='TRUMP-XB4V' || row.candidate_id==='CLINTON-1GOF') classes.push('is-rabb');
+      if (isWriteIn) classes.push('rabb-writein');
+      return `<div class="${classes.join(' ')}">
+        <div class="rabb-rank">${rank}</div>
+        <div class="rabb-name">${escapeHtml(row.candidate_name || 'WRITE-IN')}</div>
+        <div class="rabb-pct">${pct}</div>
+        <div class="rabb-votes">${votes}</div>
+      </div>`;
+    }).join('');
+    const m=Number(properties.th16_trump_margin_pp);
+    const leader=Number.isFinite(m) ? (m>0?`TRUMP +${m.toFixed(1)}`:m<0?`HILLARY +${Math.abs(m).toFixed(1)}`:'TIE') : '—';
+    return `<div class="bh16-popup">
+      <div class="bh16-popup-head">2016 PRESIDENTIAL GENERAL · ${leader} PTS</div>
+      <div class="rabb-columns"><span>Rank</span><span>Candidate</span><span>Percent</span><span>Votes*</span></div>
+      ${body}
+      <div class="bh16-crosswalk-note">* Votes are crosswalked from 2016 precinct boundaries to current precinct boundaries using the 2010 population-weighted crosswalk.</div>
+    </div>`;
+  }
+
   map.on('click','polling-place-stars',(e)=>{
     const p=e.features[0].properties || {};
     const names=parseJsonArray(p.polling_place_names);
@@ -1326,7 +1380,8 @@ map.on('load', async ()=>{
       </div>` : '';
     const rabb=dataLayer.value==='rabb' ? rabbPopupHtml(p) : '';
     const bh16=dataLayer.value==='bernie_hillary' ? bh16PopupHtml(p) : '';
-    new maplibregl.Popup({maxWidth:'360px'})
+    const th16=dataLayer.value==='trump_hillary' ? th16PopupHtml(p) : '';
+    new maplibregl.Popup({maxWidth:'380px'})
       .setLngLat(e.lngLat)
       .setHTML(`<div class="popup-title">DIVISION ${p.display_id}</div>
         <div class="popup-grid">
@@ -1334,7 +1389,7 @@ map.on('load', async ()=>{
           <div>Council</div><div class="v">${p.city_council_district ?? '—'}</div>
           <div>PA House</div><div class="v">${p.state_house_district ?? '—'}</div>
           ${metric}
-        </div>${wfp}${rabb}${bh16}`)
+        </div>${wfp}${rabb}${bh16}${th16}`)
       .addTo(map);
   });
   map.on('mouseenter','precinct-fill',()=>map.getCanvas().style.cursor='pointer');
