@@ -241,7 +241,7 @@
       onerror="this.style.display='none'"
     >
     <span class="brand-title">DAVY'S MAP EXPLORER</span>
-    <span class="version-tag">v2.8.1</span>
+    <span class="version-tag">v2.8.2</span>
   </header>
   <aside id="sidebar">
     <div class="group">
@@ -824,7 +824,7 @@ async function updateDataLayer() {
     map.setPaintProperty('precinct-fill','fill-color','#ffffff');
     map.setPaintProperty('precinct-fill','fill-opacity',0);
   }
-  updateAreaPerformance();
+  await updateAreaPerformance();
   updateStatus();
 }
 
@@ -906,7 +906,7 @@ function areaRaceTable(summary, highlightCandidateId=null, voteLabel='Votes') {
   return header+body;
 }
 
-function updateAreaPerformance() {
+async function updateAreaPerformance() {
   const layer=dataLayer.value;
   if (!areaPerformance) return;
   if (layer==='none') {
@@ -938,23 +938,28 @@ function updateAreaPerformance() {
       ${areaRaceTable(summary,null,'Votes*')}
       <div class="area-note">* Votes are crosswalked from 2016 precinct boundaries to current precinct boundaries using the 2010 population-weighted crosswalk. Percentages include every contest vote, including write-ins.</div>`;
   } else if (layer==='amanda') {
-    let votes=0, ballots=0, included=0;
-    for (const f of (currentPrecincts.features||[])) {
-      const p=f.properties||{};
-      if (p.amanda_support_pct==null) continue;
-      included++;
-      votes+=Number(p.amanda_actual_votes||0);
-      ballots+=Number(p.dem_ballots_cast||0);
+    try {
+      const rows=await rpc('map_amanda_23p_area_performance', geographyArgs());
+      const r=Array.isArray(rows) ? rows[0] : rows;
+      if (!r) throw new Error('No Amanda area result returned');
+      const rank=areaRankLabel({rank:Number(r.amanda_rank),isTied:Boolean(r.amanda_is_tied),isWriteIn:false});
+      const votes=Number(r.amanda_votes||0);
+      const ballots=Number(r.dem_ballots_cast||0);
+      const pct=r.support_pct==null?null:Number(r.support_pct);
+      const candidateCount=Number(r.named_candidate_count||27);
+      html=`<div class="area-performance-head">Area performance</div>
+        <div class="area-performance-area">${escapeHtml(area)}</div>
+        <div class="area-performance-sub">2023 Democratic Council At-Large Primary · ACTUAL</div>
+        <div class="area-stat-grid">
+          <div>AMANDA MCILLMURRAY rank</div><div class="v">${rank} of ${candidateCount}</div>
+          <div>AMANDA MCILLMURRAY votes</div><div class="v">${votes.toLocaleString()}</div>
+          <div>DEM ballots cast</div><div class="v">${ballots.toLocaleString()}</div>
+          <div>Ballots supporting Amanda</div><div class="v">${pct==null?'—':pct.toFixed(1)+'%'}</div>
+        </div>`;
+    } catch (err) {
+      console.error(err);
+      html=`<div class="area-performance-head">Area performance</div><div class="area-performance-area">${escapeHtml(area)}</div><div class="area-note">Amanda rank unavailable: ${escapeHtml(err.message)}</div>`;
     }
-    const pct=ballots>0 ? 100*votes/ballots : null;
-    html=`<div class="area-performance-head">Area performance</div>
-      <div class="area-performance-area">${escapeHtml(area)}</div>
-      <div class="area-performance-sub">2023 Democratic Council At-Large Primary · ACTUAL</div>
-      <div class="area-stat-grid">
-        <div>AMANDA MCILLMURRAY votes</div><div class="v">${votes.toLocaleString()}</div>
-        <div>DEM ballots cast</div><div class="v">${ballots.toLocaleString()}</div>
-        <div>Ballots supporting Amanda</div><div class="v">${pct==null?'—':pct.toFixed(1)+'%'}</div>
-      </div>`;
   } else if (layer==='wfp_shift') {
     let improved=0,unchanged=0,declined=0,sum=0,n=0;
     for (const f of (currentPrecincts.features||[])) {
@@ -1044,7 +1049,7 @@ async function loadGeography(doFit=true) {
 
     updateStatus();
     if (dataLayer.value!=='none') await updateDataLayer();
-    else updateAreaPerformance();
+    else await updateAreaPerformance();
     if (doFit) fitSelected();
   } catch (err) {
     console.error(err);
@@ -1298,7 +1303,10 @@ map.on('load', async ()=>{
     let metric='';
     if (dataLayer.value==='amanda') {
       const pct=p.amanda_support_pct==null?'—':Number(p.amanda_support_pct).toFixed(1)+'%';
-      metric=`<div>Amanda votes</div><div class="v">${Number(p.amanda_actual_votes||0).toLocaleString()}</div>
+      const rank=p.amanda_rank==null?'—':areaRankLabel({rank:Number(p.amanda_rank),isTied:p.amanda_is_tied===true || p.amanda_is_tied==='true',isWriteIn:false});
+      const candidateCount=Number(p.amanda_named_candidate_count||27);
+      metric=`<div>Amanda rank</div><div class="v">${rank}${rank==='—'?'':` of ${candidateCount}`}</div>
+              <div>Amanda votes</div><div class="v">${Number(p.amanda_actual_votes||0).toLocaleString()}</div>
               <div>DEM ballots</div><div class="v">${Number(p.dem_ballots_cast||0).toLocaleString()}</div>
               <div>Support</div><div class="v">${pct}</div>`;
     }
