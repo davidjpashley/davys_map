@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>DAVY'S MAP EXPLORER v2.6</title>
+<title>DAVY'S MAP EXPLORER v2.7</title>
 <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
 <link href="https://fonts.googleapis.com/css2?family=Knewave&display=swap" rel="stylesheet">
 <style>
@@ -198,6 +198,9 @@
   .rabb-pct { font-weight:850; text-align:right; }
   .rabb-votes { font-size:10px; color:#555; text-align:right; white-space:nowrap; }
   .rabb-writein { color:#666; }
+  .polling-popup-address { font-size:11px; line-height:1.35; color:#444; margin-top:2px; }
+  .polling-popup-label { margin-top:9px; padding-top:7px; border-top:1px solid #e3e3e3; font-size:9px; letter-spacing:.08em; text-transform:uppercase; color:#777; font-weight:850; }
+  .polling-popup-divisions { margin-top:4px; font-size:11px; line-height:1.45; font-weight:750; }
   @media (max-width:760px) {
     #app { grid-template-columns:1fr; grid-template-rows:72px auto 1fr; }
     header { grid-column:1; }
@@ -216,7 +219,7 @@
       onerror="this.style.display='none'"
     >
     <span class="brand-title">DAVY'S MAP EXPLORER</span>
-    <span class="version-tag">v2.6</span>
+    <span class="version-tag">v2.7</span>
   </header>
   <aside id="sidebar">
     <div class="group">
@@ -262,6 +265,13 @@
     </div>
 
     <div class="group">
+      <div class="eyebrow">Polling places</div>
+      <div class="toggle-only">
+        <input id="pollingPlacesToggle" type="checkbox" aria-label="Polling places on or off">
+      </div>
+    </div>
+
+    <div class="group">
       <div class="eyebrow">Background map</div>
       <div class="toggle-only">
         <input id="basemapToggle" type="checkbox" checked aria-label="Background map on or off">
@@ -288,7 +298,7 @@
 
 <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
 <script>
-// DAVY'S MAP EXPLORER v2.6
+// DAVY'S MAP EXPLORER v2.7
 // LIVE DATA: Supabase project THE PORTAL.
 // This is a publishable browser key, not a service-role or secret key.
 const SUPABASE_URL = 'https://bxrxpiqyfnbahmqglkkc.supabase.co';
@@ -301,6 +311,7 @@ const status = document.getElementById('status');
 const legend = document.getElementById('legend');
 const legendTitle = document.getElementById('legendTitle');
 const legendRows = document.getElementById('legendRows');
+const pollingPlacesToggle = document.getElementById('pollingPlacesToggle');
 const basemapToggle = document.getElementById('basemapToggle');
 const basemapTransparency = document.getElementById('basemapTransparency');
 const addressForm = document.getElementById('addressForm');
@@ -313,6 +324,7 @@ let geographyOptions = {};
 let currentPrecincts = {type:'FeatureCollection',features:[]};
 let currentWards = {type:'FeatureCollection',features:[]};
 let currentBoundary = {type:'FeatureCollection',features:[]};
+let currentPollingPlaces = {type:'FeatureCollection',features:[]};
 let requestSerial = 0;
 let addressMarker = null;
 let addressPopup = null;
@@ -638,7 +650,8 @@ function fitSelected() {
 function updateStatus() {
   const features=currentPrecincts.features || [];
   const wards=[...new Set(features.map(f=>f.properties.ward))];
-  status.innerHTML = `<strong>${typeLabel()}</strong><br>${features.length.toLocaleString()} divisions · ${wards.length} ward${wards.length===1?'':'s'}<br><span style="font-size:10px;letter-spacing:.06em">LIVE FROM SUPABASE</span>`;
+  const pollingLine=pollingPlacesToggle.checked ? `<br>${(currentPollingPlaces.features||[]).length.toLocaleString()} polling place${(currentPollingPlaces.features||[]).length===1?'':'s'}` : '';
+  status.innerHTML = `<strong>${typeLabel()}</strong><br>${features.length.toLocaleString()} divisions · ${wards.length} ward${wards.length===1?'':'s'}${pollingLine}<br><span style="font-size:10px;letter-spacing:.06em">LIVE FROM SUPABASE</span>`;
 }
 
 async function loadAmandaLegacyUnused() {
@@ -771,6 +784,42 @@ async function updateDataLayer() {
   updateStatus();
 }
 
+async function fetchPollingPlaces(args) {
+  if (!pollingPlacesToggle.checked) return {type:'FeatureCollection',features:[]};
+  return rpc('map_polling_places_geojson',{
+    ...args,
+    p_election_id:'26P'
+  });
+}
+
+function setPollingVisibility() {
+  if (!map.getLayer('polling-place-stars')) return;
+  map.setLayoutProperty('polling-place-stars','visibility',pollingPlacesToggle.checked ? 'visible' : 'none');
+}
+
+async function updatePollingPlaces() {
+  if (!map.getSource('polling-places')) return;
+  if (!pollingPlacesToggle.checked) {
+    currentPollingPlaces={type:'FeatureCollection',features:[]};
+    map.getSource('polling-places').setData(currentPollingPlaces);
+    setPollingVisibility();
+    updateStatus();
+    return;
+  }
+  const serial=requestSerial;
+  try {
+    const fc=await fetchPollingPlaces(geographyArgs());
+    if (serial!==requestSerial || !pollingPlacesToggle.checked) return;
+    currentPollingPlaces=fc;
+    map.getSource('polling-places').setData(currentPollingPlaces);
+    setPollingVisibility();
+    updateStatus();
+  } catch (err) {
+    console.error(err);
+    status.innerHTML=`<strong>Polling-place layer error</strong><br>${err.message}`;
+  }
+}
+
 async function loadGeography(doFit=true) {
   const serial=++requestSerial;
   status.innerHTML='<strong>Loading live geography…</strong>';
@@ -779,21 +828,25 @@ async function loadGeography(doFit=true) {
 
   try {
     const args=geographyArgs();
-    const [precincts,wards,boundary] = await Promise.all([
+    const [precincts,wards,boundary,pollingPlaces] = await Promise.all([
       rpc('map_precinct_geojson',args),
       rpc('map_ward_geojson',args),
-      rpc('map_selected_boundary_geojson',args)
+      rpc('map_selected_boundary_geojson',args),
+      fetchPollingPlaces(args)
     ]);
     if (serial !== requestSerial) return;
 
     currentPrecincts=precincts;
     currentWards=wards;
     currentBoundary=boundary;
+    currentPollingPlaces=pollingPlaces;
 
     map.getSource('precincts').setData(currentPrecincts);
     map.getSource('wards').setData(currentWards);
     map.getSource('ward-label-points').setData(wardLabelPoints(currentWards));
     map.getSource('selected-boundary').setData(currentBoundary);
+    map.getSource('polling-places').setData(currentPollingPlaces);
+    setPollingVisibility();
 
     updateStatus();
     if (dataLayer.value!=='none') await updateDataLayer();
@@ -840,6 +893,7 @@ map.on('load', async ()=>{
   map.addSource('wards',{type:'geojson',data:currentWards});
   map.addSource('ward-label-points',{type:'geojson',data:{type:'FeatureCollection',features:[]}});
   map.addSource('selected-boundary',{type:'geojson',data:currentBoundary});
+  map.addSource('polling-places',{type:'geojson',data:currentPollingPlaces});
 
   map.addLayer({
     id:'precinct-fill',type:'fill',source:'precincts',
@@ -896,6 +950,37 @@ map.on('load', async ()=>{
     paint:{'text-color':'#222','text-halo-color':'#fff','text-halo-width':1.2}
   });
 
+  const starCanvas=document.createElement('canvas');
+  starCanvas.width=64; starCanvas.height=64;
+  const starCtx=starCanvas.getContext('2d');
+  starCtx.translate(32,32);
+  starCtx.beginPath();
+  for (let i=0;i<10;i++) {
+    const angle=-Math.PI/2+i*Math.PI/5;
+    const radius=i%2===0?25:11.5;
+    const x=Math.cos(angle)*radius, y=Math.sin(angle)*radius;
+    if (i===0) starCtx.moveTo(x,y); else starCtx.lineTo(x,y);
+  }
+  starCtx.closePath();
+  starCtx.fillStyle='#FFD52F';
+  starCtx.fill();
+  starCtx.lineWidth=5;
+  starCtx.strokeStyle='#111111';
+  starCtx.lineJoin='round';
+  starCtx.stroke();
+  map.addImage('polling-star',starCtx.getImageData(0,0,64,64),{pixelRatio:2});
+
+  map.addLayer({
+    id:'polling-place-stars',type:'symbol',source:'polling-places',
+    layout:{
+      'icon-image':'polling-star',
+      'icon-size':['interpolate',['linear'],['zoom'],8,0.72,12,0.88,15,1.0],
+      'icon-allow-overlap':true,
+      'icon-ignore-placement':true,
+      'visibility':'none'
+    }
+  });
+
   function ordinal(value) {
     if (value==null || !Number.isFinite(Number(value))) return '—';
     const n=Number(value);
@@ -917,6 +1002,17 @@ map.on('load', async ()=>{
     const cls=n>0?'shift-improved':n<0?'shift-declined':'shift-neutral';
     const label=n>0?`+${n}`:String(n);
     return `<span class="${cls}">${label}</span>`;
+  }
+
+  function parseJsonArray(raw) {
+    if (Array.isArray(raw)) return raw;
+    if (typeof raw === 'string') {
+      try {
+        const parsed=JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch (_) { return []; }
+    }
+    return [];
   }
 
   function parseRabbResults(raw) {
@@ -963,7 +1059,26 @@ map.on('load', async ()=>{
     </div>`;
   }
 
+  map.on('click','polling-place-stars',(e)=>{
+    const p=e.features[0].properties || {};
+    const names=parseJsonArray(p.polling_place_names);
+    const divisions=parseJsonArray(p.divisions);
+    const nameHtml=(names.length?names:['POLLING PLACE']).map(n=>escapeHtml(n)).join('<br>');
+    const address=[p.address,p.zip].filter(Boolean).map(escapeHtml).join(', ');
+    const divisionsHtml=divisions.length?divisions.map(escapeHtml).join(', '):'—';
+    new maplibregl.Popup()
+      .setLngLat(e.lngLat)
+      .setHTML(`<div class="popup-title">${nameHtml}</div>
+        <div class="polling-popup-address">${address}</div>
+        <div class="polling-popup-label">Assigned divisions</div>
+        <div class="polling-popup-divisions">${divisionsHtml}</div>`)
+      .addTo(map);
+  });
+  map.on('mouseenter','polling-place-stars',()=>map.getCanvas().style.cursor='pointer');
+  map.on('mouseleave','polling-place-stars',()=>map.getCanvas().style.cursor='');
+
   map.on('click','precinct-fill',(e)=>{
+    if (pollingPlacesToggle.checked && map.queryRenderedFeatures(e.point,{layers:['polling-place-stars']}).length) return;
     const p=e.features[0].properties;
     let metric='';
     if (dataLayer.value==='amanda') {
@@ -1018,6 +1133,7 @@ geoType.addEventListener('change',async ()=>{
 });
 geoValue.addEventListener('change',()=>loadGeography(true));
 dataLayer.addEventListener('change',updateDataLayer);
+pollingPlacesToggle.addEventListener('change',updatePollingPlaces);
 document.getElementById('fitBtn').addEventListener('click',fitSelected);
 
 addressForm.addEventListener('submit',e=>{ e.preventDefault(); searchAddress(); });
